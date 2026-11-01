@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Libro a Dúo</title>
+<meta name="description" content="Leé un libro en conjunto con otra persona: páginas sincronizadas y postits de texto y de voz.">
+<meta name="theme-color" content="#f5f8f9" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#192327" media="(prefers-color-scheme: dark)">
+<meta name="color-scheme" content="light dark">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Libro a Dúo">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Literata:ital,opsz,wght@0,7..72,400..700;1,7..72,400..600&display=swap">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<div id="app">
+  <section id="gate" hidden></section>
+
+  <section id="lib" hidden>
+    <div class="scroll"><div class="wrap">
+      <div class="libtop">
+        <div class="brand">
+          <svg class="mark" viewBox="0 0 48 48" aria-hidden="true"><rect x="5" y="9" width="17" height="30" rx="2" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><rect x="26" y="9" width="17" height="30" rx="2" fill="var(--paper)" stroke="var(--ink)" stroke-width="2"/><path d="M13 6v13l3-2.5 3 2.5V6z" fill="var(--accent)"/><path d="M32 6v13l3-2.5 3 2.5V6z" fill="#d6407f"/></svg>
+          <div><h1>Libro a Dúo</h1><p>Un libro, dos lectores, la misma página.</p></div>
+        </div>
+        <button class="roombtn" id="roomBtn" data-act="room" aria-label="Abrir los datos de tu sala"></button>
+      </div>
+      <div id="libBody"></div>
+    </div></div>
+  </section>
+
+  <section id="rd" hidden>
+    <header class="top">
+      <button class="ib" data-act="back" aria-label="Volver a la biblioteca"><i data-ico="back"></i></button>
+      <div class="ttl"><b id="rdTitle"></b><span id="rdSub"></span></div>
+      <div class="tools">
+        <button class="ib" data-act="fs-" aria-label="Letra más chica" title="Letra más chica">A−</button>
+        <button class="ib" data-act="fs+" aria-label="Letra más grande" title="Letra más grande">A+</button>
+        <button class="btn" data-act="notes" id="notesBtn" aria-pressed="false"><i data-ico="note"></i><span class="lbl">Notas</span> <span class="cnt" id="notesCnt">0</span></button>
+      </div>
+    </header>
+    <div class="mid">
+      <div id="stage">
+        <div class="book" id="book">
+          <div class="clip" id="clip"><div class="slider" id="slider"><div class="flow" id="flow" lang="es"></div></div></div>
+          <div class="deco" id="deco"></div>
+        </div>
+        <div class="loading" id="rdLoad"><div><div class="spin"></div><b>Abriendo el libro</b><span>Un momento…</span></div></div>
+      </div>
+      <aside id="side" hidden aria-label="Notas">
+        <div class="side-h"><b>Notas</b>
+          <div class="seg"><button data-act="nmode" data-m="page" aria-pressed="true">Esta página</button><button data-act="nmode" data-m="all" aria-pressed="false">Todo el libro</button></div>
+          <button class="ib" data-act="notes" aria-label="Cerrar notas"><i data-ico="x"></i></button>
+        </div>
+        <div class="notes" id="notesList"></div>
+      </aside>
+    </div>
+    <footer class="bar">
+      <div class="readers" id="readers"></div>
+      <div class="nav">
+        <button class="ib" data-act="prev" id="prevBtn" aria-label="Página anterior"><i data-ico="back"></i></button>
+        <div class="scrub"><div class="marks" id="marks"></div><input type="range" id="scrub" min="0" max="0" step="1" value="0" aria-label="Ir a otra parte del libro"><div class="lbl" id="pgLbl"></div></div>
+        <button class="ib" data-act="next" id="nextBtn" aria-label="Página siguiente"><i data-ico="next"></i></button>
+      </div>
+    </footer>
+  </section>
+</div>
+
+<div class="modal" id="roomModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="roomH">
+    <h3 id="roomH">Tu sala</h3>
+    <p class="sub">Quien tenga este código entra a la misma biblioteca. Pasáselo solo a la persona con la que leés.</p>
+    <div class="codebox"><span id="roomCode"></span><button class="btn sm" data-act="copy-code">Copiar</button></div>
+    <div class="foot split" style="margin:0 0 16px">
+      <button class="btn pri" data-act="copy-invite">Copiar enlace de invitación</button>
+    </div>
+    <label class="fld"><span>Tu nombre</span><input id="rmName" maxlength="24" autocomplete="off"></label>
+    <div class="colors" id="rmColors" role="radiogroup" aria-label="Tu color"></div>
+    <div class="foot split">
+      <button class="btn danger" data-act="leave-room">Salir de la sala</button>
+      <span style="display:flex;gap:8px"><button class="btn" data-act="room-close">Cerrar</button><button class="btn pri" data-act="room-save">Guardar</button></span>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="upModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="upH">
+    <h3 id="upH">Compartir un libro</h3>
+    <p class="sub" id="upSub">Elegí un archivo PDF, Word (.docx) o de texto.</p>
+    <div id="upBody"></div>
+  </div>
+</div>
+
+<div class="modal" id="cmpModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cmpH">
+    <h3 id="cmpH">Nueva nota</h3>
+    <p class="sub" id="cmpSub"></p>
+    <blockquote class="quote" id="cmpQ"></blockquote>
+    <label class="fld"><span>Nota de texto</span><textarea id="cmpText" maxlength="1000" placeholder="Escribí lo que pensaste en este párrafo…"></textarea></label>
+    <div class="sw" id="cmpColors" role="radiogroup" aria-label="Color del postit"></div>
+    <div class="arow" id="cmpAudio"></div>
+    <p class="hint" id="cmpHint">Podés grabar hasta 5 minutos de voz o elegir un audio de hasta 4 MB.</p>
+    <div class="err" id="cmpErr" hidden></div>
+    <div class="prog" id="cmpProg" hidden><i></i></div>
+    <div class="foot"><button class="btn" data-act="cmp-cancel">Cancelar</button><button class="btn pri" data-act="cmp-save" id="cmpSave" disabled>Dejar nota</button></div>
+  </div>
+</div>
+
+<input type="file" id="audFile" accept="audio/*" hidden>
+<input type="file" id="bookFile" accept=".pdf,.docx,.doc,.txt,.md,.markdown,text/plain,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" hidden>
+<div id="toasts" aria-live="polite"></div>
+
+<script src="config.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mammoth/1.6.0/mammoth.browser.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
