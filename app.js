@@ -7,6 +7,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const nf=n=>new Intl.NumberFormat('es-AR').format(n);
+const pct=(off,total)=>total>0?(clamp((off||0)/total*100,0,100)).toFixed(2).replace('.',',')+' %':'0,00 %';
 const reduce=window.matchMedia&&matchMedia('(prefers-reduced-motion: reduce)').matches;
 const store={
   get(k){try{return localStorage.getItem(k)}catch(e){return null}},
@@ -72,7 +73,7 @@ const S={
   sb:null,room:null,code:'',member:store.get('lad-member')||'',name:store.get('lad-name')||'',color:store.get('lad-color')||'',
   screen:'boot',online:true,books:[],booksLoaded:false,readersAll:[],presence:{},ch:null,chReady:false,
   cur:null,notes:[],notesIds:null,panel:false,panelMode:'page',confirmDel:null,confirmBook:null,sel:null,
-  cmp:null,draft:null,rec:null,player:null,blobs:{},followUid:null,
+  cmp:null,draft:null,rec:null,player:null,blobs:{},followUid:null,tab:'books',wish:[],wishLoaded:false,confirmWish:null,linkWish:null,srch:null,rtTries:0,lastRt:0,
   fs:+store.get('lad-fs')||(innerWidth<600?16:18),installEvt:null
 };
 if(!S.member){S.member='m'+rnd();store.set('lad-member',S.member)}
@@ -108,7 +109,7 @@ function setOnline(v){
 /* ================= arranque ================= */
 async function init(){
   window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();S.installEvt=e;if(S.screen==='lib')renderLib()});
-  window.addEventListener('online',()=>{if(S.screen==='lib'||S.screen==='reader')tick()});
+  window.addEventListener('online',()=>{if(S.screen==='lib'||S.screen==='reader'){tick();if(!S.chReady)startRealtime()}});
   if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js').catch(()=>{})}
   if(!isConfigured()){showGate('setup');return}
   if(!window.supabase||!window.supabase.createClient){showGate('nolib');return}
@@ -157,7 +158,7 @@ async function enterRoom(code){
   startRealtime();
   S.screen='lib';showLib();
   route();
-  try{await refreshBooks();await refreshReaders()}catch(e){}
+  try{await refreshBooks();await refreshReaders();await refreshWish()}catch(e){}
   startPolling();
 }
 function leaveRoom(){
@@ -176,22 +177,30 @@ function startRealtime(){
     ch.on('presence',{event:'sync'},()=>{
       const st=ch.presenceState();const out={};
       Object.keys(st).forEach(k=>{const arr=st[k];if(arr&&arr.length)out[k]=arr[arr.length-1]});
-      S.presence=out;onOthersChanged();if(S.screen==='lib')renderLib();
+      S.lastRt=Date.now();S.presence=out;onOthersChanged();if(S.screen==='lib')renderLib();
     });
     ch.on('broadcast',{event:'changed'},msg=>{
       const p=(msg&&msg.payload)||{};
+      S.lastRt=Date.now();
       if(p.what==='books'){refreshBooks().catch(()=>{});refreshReaders().catch(()=>{})}
+      if(p.what==='wish')refreshWish().catch(()=>{});
       if(p.what==='notes'&&S.cur&&S.cur.id===p.book)refreshNotes().catch(()=>{});
     });
     ch.subscribe(status=>{
-      if(status==='SUBSCRIBED'){S.chReady=true;trackPresence()}
-      else if(status==='CLOSED'||status==='CHANNEL_ERROR'||status==='TIMED_OUT'){S.chReady=false}
+      if(status==='SUBSCRIBED'){S.chReady=true;S.rtTries=0;trackPresence();renderReaders();retickSoon()}
+      else if(status==='CLOSED'||status==='CHANNEL_ERROR'||status==='TIMED_OUT'){S.chReady=false;renderReaders();scheduleReconnect(ch)}
     });
     S.ch=ch;
   }catch(e){S.ch=null}
 }
+let rcT=null;
+function scheduleReconnect(ch){
+  if(!S.room||S.ch!==ch)return;clearTimeout(rcT);
+  const ms=Math.min(30000,2000*Math.pow(2,S.rtTries++));
+  rcT=setTimeout(()=>{if(S.room&&!S.chReady)startRealtime()},ms);
+}
 function stopRealtime(){
-  S.chReady=false;S.presence={};
+  clearTimeout(rcT);S.chReady=false;S.presence={};
   if(S.ch&&S.sb){try{S.sb.removeChannel(S.ch)}catch(e){}}
   S.ch=null;
 }
@@ -209,17 +218,27 @@ function broadcast(what,book){
   try{S.ch.send({type:'broadcast',event:'changed',payload:{what:what,book:book||null}})}catch(e){}
 }
 let pollT=null;
-function startPolling(){stopPolling();pollT=setInterval(()=>{if(!document.hidden)tick()},12000)}
-function stopPolling(){clearInterval(pollT);pollT=null}
+function pollMs(){
+  const live=S.chReady&&Date.now()-S.lastRt<45000;
+  if(S.screen==='reader')return S.followUid?(live?4000:2500):(live?10000:4000);
+  return live?15000:6000;
+}
+function startPolling(){stopPolling();const loop=()=>{pollT=setTimeout(async()=>{if(!document.hidden)await tick();loop()},pollMs())};loop()}
+function stopPolling(){clearTimeout(pollT);pollT=null}
+function retickSoon(){setTimeout(()=>{if(!document.hidden)tick()},400)}
+let tickN=0,ticking=false;
 async function tick(){
-  if(!S.room)return;
+  if(!S.room||ticking)return;ticking=true;tickN++;
   try{
-    await refreshBooks();await refreshReaders();
-    if(S.cur&&S.cur.ready)await refreshNotes();
+    if(S.screen==='reader'&&S.cur&&S.cur.ready){
+      await refreshReaders();
+      if(tickN%3===0||!S.chReady){await refreshNotes();await refreshBooks()}
+    }else{await refreshBooks();await refreshReaders();await refreshWish()}
     if(S.chReady)trackPresence();
   }catch(e){}
+  ticking=false;
 }
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.room){tick();if(S.ch&&!S.chReady)startRealtime()}else flushSave()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.room){tick();if(!S.chReady)startRealtime()}else flushSave()});
 
 /* ================= biblioteca ================= */
 async function refreshBooks(){
@@ -246,6 +265,8 @@ function renderLib(){
   if(S.screen!=='lib')return;
   const el=$('#libBody');
   let h='<div class="banner warn" id="netBanner" '+(S.online?'hidden':'')+'>Sin conexión con el servidor. Los libros que ya abriste se pueden leer; las notas y la página del otro se actualizan cuando vuelva internet.</div>';
+  h+='<div class="seg" style="margin-bottom:18px"><button data-act="tab-lib" data-t="books" aria-pressed="'+(S.tab==='books')+'">Biblioteca</button><button data-act="tab-lib" data-t="list" aria-pressed="'+(S.tab==='list')+'">Lista de lectura'+(S.wish.filter(w=>w.status!=='done').length?' ('+S.wish.filter(w=>w.status!=='done').length+')':'')+'</button></div>';
+  if(S.tab==='list'){h+=wishHtml();el.innerHTML=h;return}
   h+='<div class="drop" id="drop"><div><h2>Sumá un libro</h2><p>PDF, Word (.docx), TXT o Markdown. El texto se arma como un libro de páginas.</p></div><button class="btn pri" data-act="pick-book">'+ico('up')+'Elegir archivo</button></div>';
   if(!S.books.length){
     h+=S.booksLoaded?'<div class="empty"><h3>Todavía no hay libros</h3>Subí el primero y los dos lo leen desde acá, cada uno en su pantalla.</div>':'<div class="empty"><div class="spin"></div>Cargando la biblioteca…</div>';
@@ -256,6 +277,38 @@ function renderLib(){
   else if(isIOS()&&!isStandalone())h+='<p class="install">Para instalarla en el iPhone: tocá Compartir y después "Agregar a inicio".</p>';
   el.innerHTML=h;
 }
+async function refreshWish(){
+  S.wish=(await rpc('lad_wish_list',{p_room:S.room}))||[];S.wishLoaded=true;
+  if(S.screen==='lib'&&S.tab==='list'){const a=document.activeElement;if(!(a&&a.id==='wishIn'))renderLib()}else if(S.screen==='lib')renderLib();
+}
+const WST={pending:'Pendiente',reading:'Leyendo',done:'Ya leído'};
+function wishItem(w){
+  const bk=w.book?S.books.find(b=>b.id===w.book):null;
+  const who='Propuesto por '+esc(w.by_member===S.member?'vos':(w.by_name||'otra persona'));
+  const dt=w.status==='done'&&w.done_at?' · Terminado el '+esc(new Date(w.done_at).toLocaleDateString('es-AR',{day:'numeric',month:'long',year:'numeric'})):'';
+  const seg='<div class="seg">'+['pending','reading','done'].map(k=>'<button data-act="wish-st" data-id="'+w.id+'" data-st="'+k+'" aria-pressed="'+(w.status===k)+'">'+WST[k]+'</button>').join('')+'</div>';
+  const file=w.book?(bk?'<button class="btn sm" data-act="open-book" data-id="'+bk.id+'">Abrir libro</button>':'<span class="hint">Libro adjunto</span>'):'<button class="btn sm" data-act="wish-attach" data-id="'+w.id+'">Adjuntar archivo</button>';
+  const del=S.confirmWish===w.id?'<span style="font-size:13px">¿Quitar?</span><button class="btn sm danger" data-act="wish-del-yes" data-id="'+w.id+'">Quitar</button><button class="btn sm" data-act="wish-del-no">No</button>':'<button class="btn sm" data-act="wish-del" data-id="'+w.id+'">Quitar</button>';
+  return '<div class="banner" style="margin-bottom:10px"><b style="display:block;font-size:15px">'+esc(w.title)+'</b><span style="font-size:13px">'+who+dt+'</span><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px">'+seg+file+del+'</div></div>';
+}
+function wishHtml(){
+  let h='<form id="wishForm" data-act="none" style="display:flex;gap:8px;margin-bottom:22px"><input id="wishIn" maxlength="160" placeholder="Título de un libro para leer" autocomplete="off" style="flex:1;min-width:0;border:1px solid var(--line);background:var(--paper);color:var(--paper-ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px"><button class="btn pri" type="submit">Agregar</button></form>';
+  if(!S.wishLoaded)return h+'<div class="empty"><div class="spin"></div>Cargando la lista…</div>';
+  const g=k=>S.wish.filter(w=>w.status===k);
+  const sec=(t,arr)=>arr.length?'<p class="shelf-h">'+t+'</p>'+arr.map(wishItem).join(''):'';
+  const act=g('reading').concat(g('pending'));
+  if(!S.wish.length)h+='<div class="empty"><h3>La lista está vacía</h3>Sumen los libros que quieren leer. Pueden agregar el archivo más tarde.</div>';
+  h+=sec('Leyendo',g('reading'))+sec('Pendientes',g('pending'));
+  const done=g('done').sort((a,b)=>Date.parse(b.done_at||0)-Date.parse(a.done_at||0));
+  if(done.length)h+='<div style="margin-top:28px">'+sec('Ya leídos',done)+'</div>';
+  return h;
+}
+async function wishAct(fn){try{await fn();broadcast('wish');await refreshWish()}catch(e){toast('No se pudo actualizar la lista. Probá de nuevo.')}}
+document.addEventListener('submit',e=>{
+  if(e.target.id!=='wishForm')return;e.preventDefault();
+  const i=$('#wishIn'),t=(i.value||'').trim();if(!t)return;i.value='';
+  wishAct(()=>rpc('lad_wish_add',{p_room:S.room,p_title:t,p_member:S.member,p_name:S.name}));
+});
 function readersOf(bookId){
   const map={};
   S.readersAll.filter(r=>r.book===bookId).forEach(r=>{map[r.member]={uid:r.member,name:r.name,color:r.color,pos:r.pos,live:false}});
@@ -265,8 +318,8 @@ function readersOf(bookId){
 function bookCard(b){
   const hue=hueOf(b.title||b.id);
   const rs=readersOf(b.id).sort((a,c)=>(c.live-a.live)||(a.uid===S.member?-1:1));
-  const prog=rs.slice(0,3).map(r=>{const pct=b.chars?clamp(Math.round((r.pos||0)/b.chars*100),0,100):0;
-    return '<div class="pr" style="--c:'+esc(r.color||'#0e8a8f')+'"><i></i><div class="bar"><b style="width:'+pct+'%"></b></div><span>'+esc(r.uid===S.member?'Vos':r.name||'Otra persona')+' · '+pct+'%'+(r.live?' · <em class="live">ahora</em>':'')+'</span></div>'}).join('');
+  const prog=rs.slice(0,3).map(r=>{const pc=pct(r.pos,b.total||b.chars);const pw=clamp(((r.pos||0)/(b.total||b.chars||1))*100,0,100).toFixed(2);
+    return '<div class="pr" style="--c:'+esc(r.color||'#0e8a8f')+'"><i></i><div class="bar"><b style="width:'+pw+'%"></b></div><span>'+esc(r.uid===S.member?'Vos':r.name||'Otra persona')+' · '+pc+(r.live?' · <em class="live">ahora</em>':'')+'</span></div>'}).join('');
   const foot=S.confirmBook===b.id?'<div class="bk-foot"><span style="margin-right:auto;align-self:center;font-size:13px">¿Quitar para los dos?</span><button class="btn sm danger" data-act="book-del-yes" data-id="'+b.id+'">Quitar</button><button class="btn sm" data-act="book-del-no">No</button></div>'
     :'<div class="bk-foot"><button class="btn sm" data-act="book-del" data-id="'+b.id+'">Quitar</button></div>';
   return '<div class="bk"><button class="bk-open" data-act="open-book" data-id="'+b.id+'"><div class="cover" style="background:hsl('+hue+' 38% 30%)">'+esc((b.title||'').slice(0,48))+'</div><div class="bk-t"><b>'+esc(b.title||'Sin título')+'</b><span>≈ '+nf(Math.max(1,Math.round((b.chars||0)/1800)))+' páginas · '+nf(b.words||0)+' palabras</span><span>Subido por '+esc(b.by_member===S.member?'vos':(b.by_name||'otra persona'))+'</span></div></button>'+(prog?'<div class="bk-prog">'+prog+'</div>':'')+foot+'</div>';
@@ -399,7 +452,7 @@ function openUpload(file){
   $('#upSub').textContent=file?file.name:'Elegí un archivo PDF, Word (.docx) o de texto.';
   if(!file){$('#upBody').innerHTML='<div class="foot"><button class="btn" data-act="up-close">Cancelar</button><button class="btn pri" data-act="pick-book">'+ico('file')+'Elegir archivo</button></div>';return}
   $('#upBody').innerHTML='<div class="prog"><i id="upBar"></i></div><p class="hint" id="upMsg">Leyendo el archivo…</p><div class="foot"><button class="btn" data-act="up-close">Cancelar</button></div>';
-  upName=prettyTitle(file.name);
+  upName=S.linkWish?((S.wish.find(w=>w.id===S.linkWish)||{}).title||prettyTitle(file.name)):prettyTitle(file.name);
   parseFile(file,f=>{const b=$('#upBar');if(b)b.style.width=Math.round(f*100)+'%'}).then(blocks=>{
     if($('#upModal').hidden)return;
     upBlocks=blocks;
@@ -420,12 +473,13 @@ async function saveBook(){
     const g=await gzip(json);
     const b=b64enc(g.u8);const n=Math.ceil(b.length/CH);
     if(n>MAX_PARTS)throw new Error('El libro es demasiado largo para compartirlo. Probá con una parte del libro.');
-    bookId=await rpc('lad_add_book',{p_room:S.room,p_title:title,p_chars:upBlocks.chars,p_words:upBlocks.words,p_gz:g.gz,p_n_chunks:n,p_member:S.member,p_name:S.name});
+    bookId=await rpc('lad_add_book',{p_room:S.room,p_title:title,p_chars:upBlocks.chars,p_words:upBlocks.words,p_total:buildFlow(upBlocks).total,p_gz:g.gz,p_n_chunks:n,p_member:S.member,p_name:S.name});
     for(let i=0;i<n;i++){
       await rpc('lad_add_chunk',{p_room:S.room,p_book:bookId,p_idx:i,p_data:b.slice(i*CH,(i+1)*CH)});
       $('#upBar2').style.width=Math.round((i+1)/(n+1)*100)+'%';
     }
     await rpc('lad_finish_book',{p_room:S.room,p_book:bookId});
+    if(S.linkWish){try{await rpc('lad_wish_link',{p_room:S.room,p_id:S.linkWish,p_book:bookId});broadcast('wish')}catch(e){}S.linkWish=null;refreshWish().catch(()=>{})}
     idb.set(bookId,json);
     $('#upBar2').style.width='100%';
     $('#upModal').hidden=true;upBlocks=null;
@@ -531,7 +585,7 @@ async function openBook(id){
 function closeBook(keepView){
   const c=S.cur;
   if(c){flushSave();}
-  stopPlayer();S.cur=null;S.notes=[];S.notesIds=null;S.sel=null;S.followUid=null;S.confirmDel=null;
+  stopPlayer();S.cur=null;S.notes=[];S.notesIds=null;S.sel=null;S.followUid=null;S.confirmDel=null;closeSearch();
   if(c)trackPresence();
   if(S.cmp)closeComposer();
   if(!keepView&&S.room){$('#rd').hidden=true;S.screen='lib';showLib()}
@@ -591,7 +645,7 @@ function paintAll(){paintDeco();decorateSpans();paintChrome();renderReaders();if
 function spreadPages(){const c=S.cur;const a=c.spread*c.N;return{a:a,b:Math.min(c.P-1,a+c.N-1)}}
 function pgText(){const c=S.cur,p=spreadPages();return(p.a===p.b?'pág. '+(p.a+1):'págs. '+(p.a+1)+'–'+(p.b+1))+' de '+c.P}
 function paintChrome(){
-  const c=S.cur;$('#scrub').value=c.spread;$('#pgLbl').textContent=pgText();
+  const c=S.cur;$('#scrub').value=c.spread;$('#pgLbl').textContent=pgText()+' · '+pct(c.myOff,c.data.total);
   $('#prevBtn').disabled=c.spread<=0;$('#nextBtn').disabled=c.spread>=c.nSp-1;
   const pos=off=>c.P>1?clamp(pageOfOff(off)/(c.P-1),0,1)*100:0;
   $('#marks').innerHTML=getOthers().map(o=>'<i style="left:'+pos(o.off)+'%;--c:'+esc(o.color||'#0e8a8f')+'"></i>').join('');
@@ -631,13 +685,15 @@ function decorateSpans(){
 }
 
 /* ================= navegación y sincronía ================= */
-function stopFollow(){if(S.followUid){S.followUid=null;renderReaders()}}
-function navigateTo(s,follow){
+function stopFollow(){if(S.followUid)setFollow(null)}
+function setFollow(uid){S.followUid=uid||null;renderReaders();startPolling()}
+function navigateTo(s,follow,exact){
   const c=S.cur;if(!c||!c.ready)return;
   s=clamp(s,0,c.nSp-1);
   if(!follow)stopFollow();
-  S.sel=null;showSpread(s,true);
-  c.myOff=offOfPage(c.spread*c.N);
+  S.sel=null;
+  c.myOff=(follow&&typeof exact==='number')?exact:offOfPage(s*c.N);
+  if(s!==c.spread||!follow)showSpread(s,true);else paintAll();
   store.set('lad-pos:'+c.id,JSON.stringify({pos:c.myOff,ts:Date.now()}));
   trackPresence();scheduleSave();
 }
@@ -664,22 +720,80 @@ function renderReaders(){
   const c=S.cur;if(!c||!c.ready)return;
   const others=getOthers();
   const sp=spreadPages();
-  let h='<div class="rchip" style="--c:'+esc(S.color)+'"><span class="dot"></span><b>Vos</b><span class="pg">'+(sp.a===sp.b?'pág. '+(sp.a+1):'págs. '+(sp.a+1)+'–'+(sp.b+1))+'</span></div>';
+  let h='<div class="rchip" style="--c:'+esc(S.color)+'"><span class="dot"></span><b>Vos</b><span class="pg">'+(sp.a===sp.b?'pág. '+(sp.a+1):'págs. '+(sp.a+1)+'–'+(sp.b+1))+' · '+pct(c.myOff,c.data.total)+'</span></div>';
   if(!others.length)h+='<span class="alone" style="align-self:center">Todavía no hay otra persona en este libro. Pasale el código de sala y que abra el mismo libro.</span>';
   others.forEach(o=>{
     const pg=pageOfOff(o.off)+1;const f=S.followUid===o.uid;
-    h+='<div class="rchip" style="--c:'+esc(o.color||'#0e8a8f')+'"><span class="dot"></span><b>'+esc(o.name||'Otra persona')+'</b><span class="pg">pág. '+pg+'</span>'+(o.live?'<em class="live">leyendo ahora</em>':'<span class="pg xtra">última vez</span>')+'<button class="btn" data-act="goto-uid" data-uid="'+esc(o.uid)+'">Ir ahí</button><button class="btn" data-act="follow" data-uid="'+esc(o.uid)+'" aria-pressed="'+f+'">'+(f?'Siguiendo':'Seguir')+'</button></div>';
+    h+='<div class="rchip" style="--c:'+esc(o.color||'#0e8a8f')+'"><span class="dot"></span><b>'+esc(o.name||'Otra persona')+'</b><span class="pg">pág. '+pg+' · '+pct(o.off,c.data.total)+'</span>'+(o.live?'<em class="live">leyendo ahora</em>':'<span class="pg xtra">última vez</span>')+'<button class="btn" data-act="goto-uid" data-uid="'+esc(o.uid)+'">Ir ahí</button><button class="btn" data-act="follow" data-uid="'+esc(o.uid)+'" aria-pressed="'+f+'">'+(f?'Siguiendo':'Seguir')+'</button></div>';
   });
+  h+='<span class="pg xtra" style="align-self:center;margin-left:auto;font-size:12px;color:var(--muted)" title="'+(S.chReady?'Conexión en vivo activa':'Sin conexión en vivo: se actualiza cada pocos segundos')+'">'+(S.chReady?'En vivo':'Con demora')+'</span>';
   $('#readers').innerHTML=h;
 }
 function onOthersChanged(){
   const c=S.cur;if(!c||!c.ready)return;
   if(S.followUid){
     const t=getOthers().find(o=>o.uid===S.followUid);
-    if(t){const target=Math.floor(pageOfOff(t.off)/c.N);if(target!==c.spread)navigateTo(target,true)}
+    if(t){const target=Math.floor(pageOfOff(t.off)/c.N);if(target!==c.spread||t.off!==c.myOff)navigateTo(target,true,t.off)}
+    else setFollow(null);
   }
   paintChrome();paintDeco();renderReaders();
 }
+
+/* ================= buscar en el libro ================= */
+const hlOK=!!(window.CSS&&CSS.highlights&&window.Highlight);
+function normCh(ch){const n=ch.normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLowerCase();return n.length?n[0]:ch}
+function normStr(q){return q.split('').map(normCh).join('')}
+function buildHay(c){
+  if(c.hay)return c.hay;
+  const starts=new Int32Array(c.spans.length);let parts=[],n=0;
+  c.spans.forEach((sp,i)=>{starts[i]=n;const t=sp.textContent;n+=t.length;parts.push(t.split('').map(normCh).join(''))});
+  c.hay={text:parts.join(''),starts:starts};return c.hay;
+}
+function openSearch(){
+  const c=S.cur;if(!c||!c.ready)return;
+  const b=$('#srch');b.hidden=false;const i=$('#srchIn');i.focus();i.select();
+  if(i.value)runSearch(i.value,false);
+}
+function closeSearch(){
+  const b=$('#srch');if(b)b.hidden=true;
+  if(hlOK){CSS.highlights.delete('lad-hit');CSS.highlights.delete('lad-cur')}
+  document.querySelectorAll('.s.hitc').forEach(e=>e.classList.remove('hitc'));
+  S.srch=null;const k=$('#srchCnt');if(k)k.textContent='';
+}
+function spanOfPos(h,pos){let lo=0,hi=h.starts.length-1,r=0;while(lo<=hi){const m=(lo+hi)>>1;if(h.starts[m]<=pos){r=m;lo=m+1}else hi=m-1}return r}
+function rangeFor(c,h,a,z){
+  const i=spanOfPos(h,a),j=spanOfPos(h,Math.max(a,z-1));
+  const n1=c.spans[i].firstChild,n2=c.spans[j].firstChild;if(!n1||!n2)return null;
+  const r=document.createRange();
+  r.setStart(n1,a-h.starts[i]);r.setEnd(n2,Math.min(z-h.starts[j],n2.length));return r;
+}
+function runSearch(q,jump){
+  const c=S.cur;if(!c||!c.ready)return;
+  const nq=normStr(q.trim());
+  if(hlOK){CSS.highlights.delete('lad-hit');CSS.highlights.delete('lad-cur')}
+  document.querySelectorAll('.s.hitc').forEach(e=>e.classList.remove('hitc'));
+  if(nq.length<2){S.srch=null;$('#srchCnt').textContent=q.trim()?'Escribí 2 letras o más':'';return}
+  const h=buildHay(c),hits=[];let k=0;
+  while((k=h.text.indexOf(nq,k))>=0&&hits.length<5000){hits.push([k,k+nq.length]);k+=nq.length}
+  S.srch={q:q,hits:hits,cur:-1,len:nq.length};
+  if(!hits.length){$('#srchCnt').textContent='0 resultados';return}
+  if(hlOK){const rs=hits.map(x=>rangeFor(c,h,x[0],x[1])).filter(Boolean);CSS.highlights.set('lad-hit',new Highlight(...rs))}
+  // arranca en la primera coincidencia desde donde estás leyendo
+  const here=c.spread*c.N;let start=hits.findIndex(x=>c.pages[spanOfPos(h,x[0])]>=here);if(start<0)start=0;
+  showHit(start,jump!==false);
+}
+function showHit(i,go){
+  const c=S.cur,s=S.srch;if(!s||!s.hits.length)return;
+  const h=buildHay(c);s.cur=(i+s.hits.length)%s.hits.length;
+  const x=s.hits[s.cur],si=spanOfPos(h,x[0]);
+  $('#srchCnt').textContent=(s.cur+1)+' de '+s.hits.length+(s.hits.length>=5000?'+':'');
+  document.querySelectorAll('.s.hitc').forEach(e=>e.classList.remove('hitc'));
+  if(hlOK){const r=rangeFor(c,h,x[0],x[1]);if(r)CSS.highlights.set('lad-cur',new Highlight(r))}else c.spans[si].classList.add('hitc');
+  if(go)goToOff(c.data.offs[si]);
+}
+function searchStep(d){if(S.srch&&S.srch.hits.length)showHit(S.srch.cur+d,true)}
+$('#srchIn').addEventListener('input',e=>runSearch(e.target.value));
+$('#srchIn').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();searchStep(e.shiftKey?-1:1)}else if(e.key==='Escape'){e.stopPropagation();closeSearch()}});
 
 /* ================= notas ================= */
 async function refreshNotes(){
@@ -888,8 +1002,18 @@ document.addEventListener('click',e=>{
     case 'install':if(S.installEvt){S.installEvt.prompt();S.installEvt=null;renderLib()}break;
     case 'open-book':location.hash='libro-'+t.dataset.id;break;
     case 'back':location.hash='';if(S.screen==='reader')route();break;
-    case 'pick-book':$('#bookFile').click();break;
-    case 'up-close':$('#upModal').hidden=true;upBlocks=null;break;
+    case 'tab-lib':S.tab=t.dataset.t;renderLib();break;
+    case 'wish-st':wishAct(()=>rpc('lad_wish_set_status',{p_room:S.room,p_id:t.dataset.id,p_status:t.dataset.st}));break;
+    case 'wish-attach':S.linkWish=t.dataset.id;$('#bookFile').click();break;
+    case 'wish-del':S.confirmWish=t.dataset.id;renderLib();break;
+    case 'wish-del-no':S.confirmWish=null;renderLib();break;
+    case 'wish-del-yes':{const id=t.dataset.id;S.confirmWish=null;wishAct(()=>rpc('lad_wish_delete',{p_room:S.room,p_id:id}));break}
+    case 'search':openSearch();break;
+    case 's-next':searchStep(1);break;
+    case 's-prev':searchStep(-1);break;
+    case 's-close':closeSearch();break;
+    case 'pick-book':S.linkWish=null;$('#bookFile').click();break;
+    case 'up-close':$('#upModal').hidden=true;upBlocks=null;S.linkWish=null;break;
     case 'up-save':saveBook();break;
     case 'book-del':S.confirmBook=t.dataset.id;renderLib();break;
     case 'book-del-no':S.confirmBook=null;renderLib();break;
@@ -902,8 +1026,8 @@ document.addEventListener('click',e=>{
     case 'goto-uid':{const o=getOthers().find(x=>x.uid===t.dataset.uid);if(o)goToOff(o.off);break}
     case 'follow':{
       const u=t.dataset.uid;const o=getOthers().find(x=>x.uid===u);const nm=(o&&o.name)||'la otra persona';
-      if(S.followUid===u){S.followUid=null;renderReaders();toast('Dejaste de seguir a '+nm+'.')}
-      else{S.followUid=u;if(o)goToOff(o.off,true);renderReaders();toast('Ahora pasás de página junto con '+nm+'.')}
+      if(S.followUid===u){setFollow(null);toast('Dejaste de seguir a '+nm+'.')}
+      else{setFollow(u);if(o)navigateTo(Math.floor(pageOfOff(o.off)/S.cur.N),true,o.off);tick();toast('Ahora pasás de página junto con '+nm+'.')}
       break}
     case 'pop-note':openComposer(false);break;
     case 'pop-voice':openComposer(true);break;
@@ -942,6 +1066,7 @@ document.addEventListener('keydown',e=>{
   if(e.key==='Escape'){
     if(!$('#cmpModal').hidden)closeComposer();else if(!$('#upModal').hidden){$('#upModal').hidden=true}else if(!$('#roomModal').hidden){$('#roomModal').hidden=true}else hidePop();return}
   const c=S.cur;if(!c||!c.ready||$('#rd').hidden)return;
+  if((e.ctrlKey||e.metaKey)&&(e.key==='f'||e.key==='F')){e.preventDefault();openSearch();return}
   if(!$('#cmpModal').hidden||!$('#upModal').hidden||!$('#roomModal').hidden)return;
   const tg=(e.target.tagName||'').toLowerCase();if(tg==='input'||tg==='textarea')return;
   if(e.key==='ArrowRight'||e.key==='PageDown'){e.preventDefault();navigateTo(c.spread+1)}

@@ -42,12 +42,14 @@
       <button class="ib" data-act="back" aria-label="Volver a la biblioteca"><i data-ico="back"></i></button>
       <div class="ttl"><b id="rdTitle"></b><span id="rdSub"></span></div>
       <div class="tools">
+        <button class="ib" data-act="search" aria-label="Buscar en el libro" title="Buscar en el libro (Ctrl+F)"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/></svg></button>
         <button class="ib" data-act="fs-" aria-label="Letra más chica" title="Letra más chica">A−</button>
         <button class="ib" data-act="fs+" aria-label="Letra más grande" title="Letra más grande">A+</button>
         <button class="btn" data-act="notes" id="notesBtn" aria-pressed="false"><i data-ico="note"></i><span class="lbl">Notas</span> <span class="cnt" id="notesCnt">0</span></button>
       </div>
     </header>
     <div class="mid">
+      <div id="srch" hidden><input id="srchIn" type="search" placeholder="Buscar en el libro" autocomplete="off" aria-label="Buscar en el libro"><span id="srchCnt" aria-live="polite"></span><button class="ib" data-act="s-prev" aria-label="Anterior">↑</button><button class="ib" data-act="s-next" aria-label="Siguiente">↓</button><button class="ib" data-act="s-close" aria-label="Cerrar búsqueda">✕</button></div>
       <div id="stage">
         <div class="book" id="book">
           <div class="clip" id="clip"><div class="slider" id="slider"><div class="flow" id="flow" lang="es"></div></div></div>

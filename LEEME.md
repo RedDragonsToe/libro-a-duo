@@ -110,3 +110,10 @@ supabase/schema.sql   tablas y funciones para pegar en Supabase
 ```
 
 La primera vez que se abre, la app descarga tres librerías de internet (Supabase, lector de PDF y lector de Word) y las guarda en el dispositivo.
+
+## Actualización 2 (lista de lectura, porcentaje, buscador, "Seguir")
+1. Copiá los archivos nuevos encima de tu carpeta (NO se toca `config.js`).
+2. En la terminal, dentro de la carpeta: `npx supabase db push` (crea la tabla de la lista y la columna del porcentaje).
+3. `git add -A`, `git commit -m "actualizacion"`, `git push`.
+4. En Supabase: Project Settings > Realtime: dejá activado "Allow public access". Si está apagado, la app sigue andando pero con unos segundos de demora (se ve "Con demora" abajo).
+Los libros subidos antes de esta versión muestran el porcentaje aproximado hasta que se vuelven a subir.
