@@ -122,7 +122,7 @@ Los libros subidos antes de esta versión muestran el porcentaje aproximado hast
 1. Copiá los archivos encima de tu carpeta (no se toca `config.js`).
 2. Base de datos: `npx supabase db push --remote` (o pegá `supabase/migrations/20261104000000_sala_admin.sql` en el SQL Editor de Supabase y tocá Run).
 3. `git add -A`, `git commit -m "sala admin y musica"`, `git push`. Recargá la app dos veces.
-4. Quien quiera administrar una sala ya existente abre "Tu sala" y toca "Ser el administrador". Hacelo vos primero.
+4. Las salas nuevas (con "Crear uno") quedan con administrador desde el principio. Para reclamar una sala que ya existía, abrí la app con la dirección terminada en `#admin` (por ejemplo `https://reddragonstoe.github.io/libro-a-duo/#admin`), entrá a "Tu sala" y tocá "Ser el administrador". Sin ese enlace el botón no aparece.
 - Cuando se crea una sala nueva con "Crear uno", la app pregunta si querés contraseña (por defecto no).
 - El administrador lo es en ese dispositivo: si borrás los datos del navegador, perdés la administración.
 - Quitar a alguien lo saca de la sala; para que no vuelva con otro dispositivo, ponele contraseña.

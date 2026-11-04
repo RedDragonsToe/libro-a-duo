@@ -129,6 +129,7 @@ async function init(){
   if(!isConfigured()){showGate('setup');return}
   if(!window.supabase||!window.supabase.createClient){showGate('nolib');return}
   mkSb();
+  if(location.hash==='#admin'){S.adminMode=true;history.replaceState(null,'',location.pathname+location.search)}
   let inviteCode='';
   const m=location.hash.match(/^#s=(.+)$/);
   if(m){try{inviteCode=decodeURIComponent(m[1])}catch(e){}history.replaceState(null,'',location.pathname+location.search)}
@@ -204,7 +205,8 @@ function renderAdmin(){
   const box=$('#rmAdmin');if(!box||!adm)return;
   let h='<div style="border-top:1px solid var(--line);padding-top:14px;margin:6px 0 16px"><b style="display:block;margin-bottom:6px">Administración</b>';
   if(!adm.info.claimed){
-    h+=adm.claiming?pwChoiceHtml()+'<button class="btn pri" data-act="admin-claim-go">Confirmar</button> <button class="btn" data-act="admin-claim-no">Cancelar</button>'
+    if(!S.adminMode)h+='<p class="hint">Esta sala no tiene administrador. Las salas nuevas, creadas con "Crear uno", lo tienen desde el principio.</p>';
+    else h+=adm.claiming?pwChoiceHtml()+'<button class="btn pri" data-act="admin-claim-go">Confirmar</button> <button class="btn" data-act="admin-claim-no">Cancelar</button>'
       :'<p class="hint">Quien administra la sala puede quitar personas y ponerle contraseña. Hacelo solo si la sala es tuya.</p><button class="btn" data-act="admin-claim">Ser el administrador de esta sala</button>';
   }else if(adm.owner){
     h+='<p class="hint">Contraseña: '+(adm.info.protected?'<b>activada</b>':'sin contraseña')+'</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><input id="apwNew" type="password" autocomplete="off" placeholder="'+(adm.info.protected?'Nueva contraseña':'Contraseña')+'" style="flex:1;min-width:140px;border:1px solid var(--line);background:var(--paper);color:var(--paper-ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px"><button class="btn" data-act="admin-setpass">'+(adm.info.protected?'Cambiar':'Poner')+'</button>'+(adm.info.protected?'<button class="btn" data-act="admin-rmpass">Quitar contraseña</button>':'')+'</div>';
@@ -596,7 +598,7 @@ function route(){
   const h=location.hash.replace(/^#/,'');
   if(h.indexOf('libro-')===0)openBook(h.slice(6));else closeBook();
 }
-window.addEventListener('hashchange',route);
+window.addEventListener('hashchange',()=>{if(location.hash==='#admin'){S.adminMode=true;history.replaceState(null,'',location.pathname+location.search);return}route()});
 
 /* ================= libro: carga ================= */
 function splitSentences(t){
