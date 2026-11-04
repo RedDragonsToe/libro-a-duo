@@ -127,3 +127,9 @@ Los libros subidos antes de esta versión muestran el porcentaje aproximado hast
 - El administrador lo es en ese dispositivo: si borrás los datos del navegador, perdés la administración.
 - Quitar a alguien lo saca de la sala; para que no vuelva con otro dispositivo, ponele contraseña.
 - Música: botón ♪. Pegá el enlace de una lista de YouTube o YouTube Music (con `list=`).
+
+## Actualización 5 (código y país visibles en el administrador local)
+1. Copiá los archivos encima de tu carpeta (no se toca `config.js`).
+2. En el SQL Editor de Supabase, pegá y corré, en este orden, los archivos `supabase/migrations/20261105000000_codigo_sala.sql` y `supabase/migrations/20261106000000_pais.sql`.
+3. `git add -A`, `git commit -m "codigo y pais"`, `git push`, y recargá la app dos veces.
+- Desde ahora, cada vez que alguien entra a una sala la app guarda en la base el código de la sala y el país aproximado (solo el código de 2 letras, sin IP), para que el dueño del proyecto los vea en el administrador local. Las salas aparecen con su código cuando alguien entra a ellas con la versión nueva.

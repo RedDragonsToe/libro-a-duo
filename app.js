@@ -88,6 +88,13 @@ async function sha256hex(t){const d=await crypto.subtle.digest('SHA-256',new Tex
 const hashTok=(code,pass)=>sha256hex('libro-a-duo:pw:v1:'+code+':'+pass);
 const isKick=e=>e&&(e.code==='LAD01'||/expulsado/.test(e.message||''));
 const isPass=e=>e&&(e.code==='LAD02'||/contrasena/.test(e.message||''));
+async function getCountry(){
+  try{const o=JSON.parse(store.get('lad-cc')||'null');if(o&&Date.now()-o.t<3*864e5)return o.v}catch(e){}
+  try{const c=new AbortController();const to=setTimeout(()=>c.abort(),4000);
+    const t=await (await fetch('https://www.cloudflare.com/cdn-cgi/trace',{signal:c.signal,cache:'no-store'})).text();clearTimeout(to);
+    const m=t.match(/^loc=([A-Z]{2})$/m);if(m){store.set('lad-cc',JSON.stringify({v:m[1],t:Date.now()}));return m[1]}}catch(e){}
+  return null;
+}
 function ownerSecret(){
   let o=store.get('lad-own:'+S.room);
   if(!o){const a=new Uint8Array(24);crypto.getRandomValues(a);o=Array.from(a,b=>b.toString(16).padStart(2,'0')).join('')}
@@ -249,6 +256,8 @@ async function enterRoom(code,pass,create){
     }
     if(create){try{await claimRoom(create.pass)}catch(e){}}
     if(pass)store.set('lad-tok:'+room,S.tok);
+    rpc('lad_room_note_code',{p_room:room,p_code:norm}).catch(()=>{});
+    getCountry().then(cc=>{if(cc&&S.room===room)rpc('lad_room_touch',{p_room:room,p_member:S.member,p_name:S.name,p_color:S.color||PALETTE[0],p_country:cc}).catch(()=>{})});
   }catch(e){S.room=null;S.code='';S.tok='';throw e}
   finally{S.entering=false}
   store.set('lad-room',norm);
