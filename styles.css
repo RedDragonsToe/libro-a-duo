@@ -247,3 +247,18 @@ section{height:100%}
 ::highlight(lad-cur){background:rgba(255,140,0,.75);color:inherit}
 .s.hitc{background:rgba(255,140,0,.6)}
 @media (max-width:600px){#srch input{width:110px}}
+
+/* música de fondo */
+#mus{position:fixed;z-index:30;right:12px;bottom:84px;width:264px;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px;box-shadow:0 6px 24px rgba(0,0,0,.22)}
+#mus[hidden]{display:none}
+#mus .mus-h{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+#mus .mus-v{width:240px;height:135px;background:#000;border-radius:8px;overflow:hidden}
+#mus .mus-t{font-size:12.5px;color:var(--muted);margin:6px 0;min-height:16px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+#mus .mus-c{display:flex;align-items:center;gap:2px}
+#mus .mus-c input[type=range]{flex:1;min-width:0}
+#mus .mus-i{display:flex;gap:6px;margin-top:8px}
+#mus .mus-i input{flex:1;min-width:0;border:1px solid var(--line);background:var(--paper);color:var(--paper-ink);border-radius:8px;padding:7px 9px;font:inherit;font-size:14px}
+#mus.min{width:auto;padding:6px}
+#mus.min .mus-v{position:fixed;left:-9999px;top:0}
+#mus.min .mus-h b,#mus.min .mus-i,#mus.min .mus-t,#mus.min #musMsg,#mus.min [data-act=mus-min]{display:none}
+#mus .ib[aria-pressed=true]{color:var(--accent)}

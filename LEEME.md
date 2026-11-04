@@ -117,3 +117,13 @@ La primera vez que se abre, la app descarga tres librerías de internet (Supabas
 3. `git add -A`, `git commit -m "actualizacion"`, `git push`.
 4. En Supabase: Project Settings > Realtime: dejá activado "Allow public access". Si está apagado, la app sigue andando pero con unos segundos de demora (se ve "Con demora" abajo).
 Los libros subidos antes de esta versión muestran el porcentaje aproximado hasta que se vuelven a subir.
+
+## Actualización 3 (contraseña opcional, administrador, música)
+1. Copiá los archivos encima de tu carpeta (no se toca `config.js`).
+2. Base de datos: `npx supabase db push --remote` (o pegá `supabase/migrations/20261104000000_sala_admin.sql` en el SQL Editor de Supabase y tocá Run).
+3. `git add -A`, `git commit -m "sala admin y musica"`, `git push`. Recargá la app dos veces.
+4. Quien quiera administrar una sala ya existente abre "Tu sala" y toca "Ser el administrador". Hacelo vos primero.
+- Cuando se crea una sala nueva con "Crear uno", la app pregunta si querés contraseña (por defecto no).
+- El administrador lo es en ese dispositivo: si borrás los datos del navegador, perdés la administración.
+- Quitar a alguien lo saca de la sala; para que no vuelva con otro dispositivo, ponele contraseña.
+- Música: botón ♪. Pegá el enlace de una lista de YouTube o YouTube Music (con `list=`).

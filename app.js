@@ -80,6 +80,19 @@ if(!S.member){S.member='m'+rnd();store.set('lad-member',S.member)}
 const isConfigured=()=>/^https:\/\/.+/.test(CFG.SUPABASE_URL||'')&&(CFG.SUPABASE_ANON_KEY||'').length>20&&!/PEGAR/.test(CFG.SUPABASE_URL+CFG.SUPABASE_ANON_KEY);
 
 /* ================= conexión con Supabase ================= */
+function mkSb(){
+  const hd={'x-lad-member':S.member};if(S.tok)hd['x-lad-token']=S.tok;
+  S.sb=window.supabase.createClient(CFG.SUPABASE_URL,CFG.SUPABASE_ANON_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},realtime:{params:{eventsPerSecond:10}},global:{headers:hd}});
+}
+async function sha256hex(t){const d=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(t));return Array.from(new Uint8Array(d),b=>b.toString(16).padStart(2,'0')).join('')}
+const hashTok=(code,pass)=>sha256hex('libro-a-duo:pw:v1:'+code+':'+pass);
+const isKick=e=>e&&(e.code==='LAD01'||/expulsado/.test(e.message||''));
+const isPass=e=>e&&(e.code==='LAD02'||/contrasena/.test(e.message||''));
+function ownerSecret(){
+  let o=store.get('lad-own:'+S.room);
+  if(!o){const a=new Uint8Array(24);crypto.getRandomValues(a);o=Array.from(a,b=>b.toString(16).padStart(2,'0')).join('')}
+  return o;
+}
 async function hashRoom(code){
   const norm=code.trim().toLowerCase().replace(/\s+/g,'-');
   if(!(window.crypto&&crypto.subtle))throw new Error('Este navegador necesita una conexión segura (https) para entrar a la sala.');
@@ -95,7 +108,9 @@ async function rpc(name,args){
   if(r.error){
     const m=r.error.message||'';
     if(netError(r.error)||/fetch|network/i.test(m)){setOnline(false)}
-    const er=new Error(r.error.message||'Error del servidor');er.code=r.error.code;er.status=r.status;throw er;
+    const er=new Error(r.error.message||'Error del servidor');er.code=r.error.code;er.status=r.status;
+    if(!S.entering){if(isKick(er))handleKicked();else if(isPass(er))needPass()}
+    throw er;
   }
   setOnline(true);
   return r.data;
@@ -113,7 +128,7 @@ async function init(){
   if('serviceWorker' in navigator&&location.protocol!=='file:'){navigator.serviceWorker.register('sw.js').catch(()=>{})}
   if(!isConfigured()){showGate('setup');return}
   if(!window.supabase||!window.supabase.createClient){showGate('nolib');return}
-  S.sb=window.supabase.createClient(CFG.SUPABASE_URL,CFG.SUPABASE_ANON_KEY,{auth:{persistSession:false,autoRefreshToken:false,detectSessionInUrl:false},realtime:{params:{eventsPerSecond:10}}});
+  mkSb();
   let inviteCode='';
   const m=location.hash.match(/^#s=(.+)$/);
   if(m){try{inviteCode=decodeURIComponent(m[1])}catch(e){}history.replaceState(null,'',location.pathname+location.search)}
@@ -122,7 +137,8 @@ async function init(){
   if(saved&&S.name){try{await enterRoom(saved);return}catch(e){}}
   showGate('join',saved||'');
 }
-function showGate(kind,prefill){
+function showGate(kind,prefill,opt){
+  opt=opt||{};
   S.screen='gate';
   ['lib','rd'].forEach(id=>$('#'+id).hidden=true);
   const g=$('#gate');g.hidden=false;
@@ -137,20 +153,102 @@ function showGate(kind,prefill){
   const color=S.color||PALETTE[Math.floor(Math.random()*PALETTE.length)];
   g.innerHTML='<div class="scroll"><div class="wrap gate"><div class="card">'+brand+'<h2>Entrá a una sala</h2><p class="sub">Los dos escriben el mismo código y quedan en la misma biblioteca. Si todavía no tienen uno, creá uno nuevo y pasáselo a la otra persona.</p>'
    +'<label class="fld"><span>Código de sala</span><div class="code-row"><input id="gCode" value="'+esc(code)+'" autocapitalize="none" autocomplete="off" spellcheck="false" placeholder="luna-3849-roble"><button class="btn" data-act="gen-code" type="button">Crear uno</button></div></label>'
-   +'<p class="hint">Cuanto más largo y raro, más privada queda la sala. Cualquiera que conozca el código puede entrar.</p>'
+   +'<div id="gNew"></div><p class="hint">Cuanto más largo y raro, más privada queda la sala. Cualquiera que conozca el código puede entrar.</p>'
+   +(opt.pass?'<label class="fld"><span>Contraseña de la sala</span><input id="gPass" type="password" autocomplete="off"></label>':'')
    +'<label class="fld"><span>Tu nombre</span><input id="gName" maxlength="24" autocomplete="off" value="'+esc(S.name)+'" placeholder="Cómo te ve la otra persona"></label>'
    +'<div class="colors" id="gColors" role="radiogroup" aria-label="Tu color">'+PALETTE.map(c=>'<label><input type="radio" name="gc" value="'+c+'"'+(c===color?' checked':'')+' aria-label="Color"><span style="--c:'+c+'"></span></label>').join('')+'</div>'
    +'<div class="err" id="gErr" hidden></div><button class="btn pri" data-act="enter-room" id="gGo" style="width:100%;justify-content:center">Entrar a la sala</button></div></div></div>';
-  setTimeout(()=>{const i=code?$('#gName'):$('#gCode');if(i&&!i.value)i.focus()},50);
+  if(opt.msg){const er=$('#gErr');er.hidden=false;er.textContent=opt.msg}
+  setTimeout(()=>{const i=opt.pass?$('#gPass'):(code?$('#gName'):$('#gCode'));if(i&&!i.value)i.focus()},50);
+}
+function pwChoiceHtml(){
+  return '<div class="banner" style="margin:0 0 14px"><b style="display:block;margin-bottom:6px">¿Querés ponerle contraseña a la sala?</b><label style="display:block;margin:4px 0"><input type="radio" name="apw" value="no" checked> No, sin contraseña</label><label style="display:block;margin:4px 0"><input type="radio" name="apw" value="yes"> Sí, ponerle contraseña</label><input id="apwIn" type="password" autocomplete="off" placeholder="Contraseña" disabled style="width:100%;margin-top:6px;border:1px solid var(--line);background:var(--paper);color:var(--paper-ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px"><span class="hint" style="display:block;margin-top:6px">Se la tenés que pasar a la otra persona junto con el código. Podés cambiarla o quitarla después.</span></div>';
+}
+function pwChoiceValue(){const y=document.querySelector('input[name=apw]:checked');if(!y||y.value!=='yes')return{ok:true,pass:''};const v=($('#apwIn').value||'').trim();return v.length<4?{ok:false}:{ok:true,pass:v}}
+document.addEventListener('change',e=>{if(e.target.name==='apw'){const i=$('#apwIn');if(i){i.disabled=e.target.value!=='yes';if(!i.disabled)i.focus()}}});
+document.addEventListener('input',e=>{if(e.target.id==='gCode'){const g=$('#gNew');if(g)g.innerHTML=''}});
+
+/* ---- administración de la sala ---- */
+function handleKicked(){
+  if(!S.room)return;
+  const rm=S.room;leaveRoom();store.del('lad-tok:'+rm);S.tok='';
+  showGate('join','',{msg:'El administrador te quitó de la sala.'});
+}
+function needPass(){
+  if(!S.room||S.entering)return;
+  const code=S.code;stopPolling();stopRealtime();closeBook(true);S.room=null;S.tok='';
+  $('#roomModal').hidden=true;
+  showGate('join',code,{pass:true,msg:'Esta sala tiene contraseña. Escribila para entrar.'});
+}
+async function claimRoom(pass){
+  const own=ownerSecret();const tok=pass?await hashTok(S.code,pass):'';
+  await rpc('lad_room_claim',{p_room:S.room,p_owner:own,p_token:tok});
+  store.set('lad-own:'+S.room,own);
+  if(tok)store.set('lad-tok:'+S.room,tok);else store.del('lad-tok:'+S.room);
+  S.tok=tok;mkSb();
+}
+function restartRt(){stopRealtime();startRealtime()}
+let adm=null;
+async function loadAdmin(){
+  const box=$('#rmAdmin');if(!box)return;
+  box.innerHTML='<p class="hint">Cargando…</p>';
+  try{
+    const info=await rpc('lad_room_info',{p_room:S.room});
+    const own=store.get('lad-own:'+S.room);let members=null;
+    if(info.claimed&&own){try{members=await rpc('lad_room_members',{p_room:S.room,p_owner:own})}catch(e){members=null}}
+    adm={info:info,owner:!!members,members:members||[],claiming:false};
+    renderAdmin();
+  }catch(e){box.innerHTML=''}
+}
+function renderAdmin(){
+  const box=$('#rmAdmin');if(!box||!adm)return;
+  let h='<div style="border-top:1px solid var(--line);padding-top:14px;margin:6px 0 16px"><b style="display:block;margin-bottom:6px">Administración</b>';
+  if(!adm.info.claimed){
+    h+=adm.claiming?pwChoiceHtml()+'<button class="btn pri" data-act="admin-claim-go">Confirmar</button> <button class="btn" data-act="admin-claim-no">Cancelar</button>'
+      :'<p class="hint">Quien administra la sala puede quitar personas y ponerle contraseña. Hacelo solo si la sala es tuya.</p><button class="btn" data-act="admin-claim">Ser el administrador de esta sala</button>';
+  }else if(adm.owner){
+    h+='<p class="hint">Contraseña: '+(adm.info.protected?'<b>activada</b>':'sin contraseña')+'</p><div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px"><input id="apwNew" type="password" autocomplete="off" placeholder="'+(adm.info.protected?'Nueva contraseña':'Contraseña')+'" style="flex:1;min-width:140px;border:1px solid var(--line);background:var(--paper);color:var(--paper-ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px"><button class="btn" data-act="admin-setpass">'+(adm.info.protected?'Cambiar':'Poner')+'</button>'+(adm.info.protected?'<button class="btn" data-act="admin-rmpass">Quitar contraseña</button>':'')+'</div>';
+    const others=adm.members.filter(m=>m.member!==S.member);
+    h+='<p class="hint" style="margin-bottom:6px">Personas en la sala</p>';
+    h+=others.length?others.map(m=>'<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span class="dot" style="width:10px;height:10px;border-radius:50%;background:'+esc(m.color||'#0e8a8f')+'"></span><span style="flex:1">'+esc(m.name||'Sin nombre')+'</span>'+(S.confirmKick===m.member?'<button class="btn sm danger" data-act="kick-yes" data-m="'+esc(m.member)+'">Sí, quitar</button><button class="btn sm" data-act="kick-no">No</button>':'<button class="btn sm" data-act="kick-ask" data-m="'+esc(m.member)+'">Quitar</button>')+'</div>').join(''):'<p class="hint">Todavía no entró nadie más.</p>';
+    h+='<p class="hint" style="margin-top:8px">Quitar a alguien lo saca de la sala. Para que no pueda volver desde otro dispositivo, ponele contraseña a la sala.</p>';
+  }else{
+    h+='<p class="hint">Esta sala ya tiene administrador.</p>';
+  }
+  box.innerHTML=h+'</div>';
+}
+async function adminDo(fn,okMsg){
+  try{await fn();if(okMsg)toast(okMsg)}catch(e){toast(e&&/administrador/.test(e.message||'')?'Solo el administrador puede hacer eso.':'No se pudo. Probá de nuevo.')}
+  await loadAdmin();
+}
+async function setRoomPass(pass){
+  const own=store.get('lad-own:'+S.room);const tok=pass?await hashTok(S.code,pass):'';
+  await rpc('lad_room_set_pass',{p_room:S.room,p_owner:own,p_token:tok});
+  if(tok)store.set('lad-tok:'+S.room,tok);else store.del('lad-tok:'+S.room);
+  stopRealtime();S.tok=tok;mkSb();startRealtime();
 }
 function genCode(){
   const a=new Uint32Array(3);try{crypto.getRandomValues(a)}catch(e){a[0]=Math.random()*1e9;a[1]=Math.random()*1e9;a[2]=Math.random()*1e9}
   return WORDS[a[0]%WORDS.length]+'-'+String(1000+a[1]%9000)+'-'+WORDS[a[2]%WORDS.length];
 }
-async function enterRoom(code){
+async function enterRoom(code,pass,create){
   const norm=code.trim().toLowerCase().replace(/\s+/g,'-');
   if(norm.length<6)throw new Error('El código tiene que tener al menos 6 caracteres.');
-  S.room=await hashRoom(norm);S.code=norm;
+  const room=await hashRoom(norm);
+  S.room=room;S.code=norm;S.entering=true;
+  try{
+    S.tok=pass?await hashTok(norm,pass):(store.get('lad-tok:'+room)||'');
+    mkSb();
+    try{await rpc('lad_room_touch',{p_room:room,p_member:S.member,p_name:S.name,p_color:S.color||PALETTE[0]})}
+    catch(e){
+      if(isPass(e)){S.tok='';store.del('lad-tok:'+room);const er=new Error(pass?'Contraseña incorrecta.':'Esta sala tiene contraseña. Escribila para entrar.');er.needPass=true;throw er}
+      if(isKick(e))throw new Error('El administrador te quitó de esta sala.');
+      if(!netError(e))throw e;
+    }
+    if(create){try{await claimRoom(create.pass)}catch(e){}}
+    if(pass)store.set('lad-tok:'+room,S.tok);
+  }catch(e){S.room=null;S.code='';S.tok='';throw e}
+  finally{S.entering=false}
   store.set('lad-room',norm);
   if(!S.color)S.color=PALETTE[0];
   S.books=[];S.booksLoaded=false;S.readersAll=[];S.presence={};
@@ -173,7 +271,7 @@ function leaveRoom(){
 function startRealtime(){
   stopRealtime();
   try{
-    const ch=S.sb.channel('lad:'+S.room.slice(0,40),{config:{presence:{key:S.member},broadcast:{self:false}}});
+    const ch=S.sb.channel('lad:'+(S.tok||S.room).slice(0,40),{config:{presence:{key:S.member},broadcast:{self:false}}});
     ch.on('presence',{event:'sync'},()=>{
       const st=ch.presenceState();const out={};
       Object.keys(st).forEach(k=>{const arr=st[k];if(arr&&arr.length)out[k]=arr[arr.length-1]});
@@ -964,13 +1062,14 @@ function renderPlayerState(){
 function openRoomModal(){
   $('#roomCode').textContent=S.code;$('#rmName').value=S.name;
   $('#rmColors').innerHTML=PALETTE.map(c=>'<label><input type="radio" name="rc" value="'+c+'"'+(c===S.color?' checked':'')+' aria-label="Color"><span style="--c:'+c+'"></span></label>').join('');
-  $('#roomModal').hidden=false;
+  $('#roomModal').hidden=false;S.confirmKick=null;loadAdmin();
 }
 function saveRoomModal(){
   const n=$('#rmName').value.trim();if(!n){toast('Escribí un nombre.');return}
   S.name=n.slice(0,24);S.color=(document.querySelector('#rmColors input:checked')||{}).value||S.color;
   store.set('lad-name',S.name);store.set('lad-color',S.color);
   $('#roomModal').hidden=true;showLib();trackPresence();
+  rpc('lad_room_touch',{p_room:S.room,p_member:S.member,p_name:S.name,p_color:S.color}).catch(()=>{});
   if(S.cur&&S.cur.ready){dirty=true;doSave()}
 }
 async function copyText(t,okMsg){
@@ -978,22 +1077,90 @@ async function copyText(t,okMsg){
   catch(e){const r=document.createRange();const el=$('#roomCode');r.selectNodeContents(el);const s=getSelection();s.removeAllRanges();s.addRange(r);toast('Copialo manualmente: quedó seleccionado.')}
 }
 
+/* ================= música de fondo (YouTube) ================= */
+const MUS={yt:null,api:null,ready:false,list:store.get('lad-mus-list')||'',vol:+(store.get('lad-mus-vol')||60),shuf:false,open:false};
+function parseList(v){
+  v=(v||'').trim();let m=v.match(/[?&]list=([\w-]{10,})/);if(m)return m[1];
+  return /^[\w-]{12,}$/.test(v)?v:'';
+}
+function loadYT(){
+  if(window.YT&&window.YT.Player)return Promise.resolve();
+  if(MUS.api)return MUS.api;
+  MUS.api=new Promise((res,rej)=>{
+    const prev=window.onYouTubeIframeAPIReady;
+    window.onYouTubeIframeAPIReady=()=>{if(prev)prev();res()};
+    const sc=document.createElement('script');sc.src='https://www.youtube.com/iframe_api';sc.onerror=()=>{MUS.api=null;rej(new Error('net'))};
+    document.head.appendChild(sc);
+  });
+  return MUS.api;
+}
+function musMsg(t){const e=$('#musMsg');if(e)e.textContent=t||''}
+function toggleMusic(v){
+  MUS.open=typeof v==='boolean'?v:!MUS.open;
+  const p=$('#mus');p.hidden=!MUS.open&&!MUS.playing;p.classList.toggle('min',!MUS.open);
+  document.querySelectorAll('[data-act=music]').forEach(b=>b.setAttribute('aria-pressed',MUS.open));
+  if(MUS.open){const i=$('#musIn');if(i&&!i.value&&MUS.list)i.value='https://www.youtube.com/playlist?list='+MUS.list}
+}
+async function musLoad(){
+  const id=parseList($('#musIn').value);
+  if(!id){musMsg('Pegá el enlace de una lista de reproducción de YouTube o YouTube Music (tiene que decir "list=").');return}
+  musMsg('Cargando…');
+  try{await loadYT()}catch(e){musMsg('No se pudo cargar YouTube. Revisá tu conexión.');return}
+  MUS.list=id;store.set('lad-mus-list',id);
+  if(MUS.yt&&MUS.ready){MUS.yt.loadPlaylist({list:id,listType:'playlist',index:0});musMsg('');return}
+  MUS.yt=new YT.Player('musP',{width:'240',height:'135',playerVars:{listType:'playlist',list:id,autoplay:1,playsinline:1,rel:0,modestbranding:1,controls:0},events:{
+    onReady:e=>{MUS.ready=true;e.target.setVolume(MUS.vol);e.target.playVideo();musMsg('')},
+    onStateChange:e=>{MUS.playing=e.data===1||e.data===3;const b=$('#musPlay');if(b)b.textContent=e.data===1?'❚❚':'▶';
+      try{const d=e.target.getVideoData();$('#musTitle').textContent=(d&&d.title)||''}catch(x){}},
+    onError:e=>musMsg(e.data===101||e.data===150?'Esa lista no permite reproducirse acá. Probá con otra.':(e.data===2||e.data===100?'No se encontró esa lista. Revisá el enlace (tiene que ser pública o no listada).':'No se pudo reproducir.'))
+  }});
+}
+function musCmd(c){
+  const y=MUS.yt;if(!y||!MUS.ready){musMsg('Primero cargá una lista.');return}
+  if(c==='prev')y.previousVideo();else if(c==='next')y.nextVideo();
+  else if(c==='toggle'){y.getPlayerState()===1?y.pauseVideo():y.playVideo()}
+  else if(c==='shuf'){MUS.shuf=!MUS.shuf;y.setShuffle(MUS.shuf);$('#musShuf').setAttribute('aria-pressed',MUS.shuf)}
+}
+document.addEventListener('input',e=>{if(e.target.id==='musVol'){MUS.vol=+e.target.value;store.set('lad-mus-vol',MUS.vol);if(MUS.yt&&MUS.ready)MUS.yt.setVolume(MUS.vol)}});
+
 /* ================= eventos ================= */
 document.addEventListener('click',e=>{
   const t=e.target.closest('[data-act]');if(!t)return;
   const a=t.dataset.act;
   switch(a){
-    case 'gen-code':{$('#gCode').value=genCode();$('#gName').focus();break}
+    case 'gen-code':{$('#gCode').value=genCode();$('#gNew').innerHTML=pwChoiceHtml();$('#gName').focus();break}
     case 'enter-room':{
       const code=$('#gCode').value,name=$('#gName').value.trim();
       const er=$('#gErr');er.hidden=true;
       if(!name){er.hidden=false;er.textContent='Escribí tu nombre para que la otra persona sepa quién sos.';return}
       S.name=name.slice(0,24);S.color=(document.querySelector('#gColors input:checked')||{}).value||PALETTE[0];
       store.set('lad-name',S.name);store.set('lad-color',S.color);
+      const creating=!!$('#gNew').innerHTML.trim();let create=null;
+      if(creating){const v=pwChoiceValue();if(!v.ok){er.hidden=false;er.textContent='La contraseña tiene que tener al menos 4 caracteres, o elegí "sin contraseña".';return}create={pass:v.pass}}
+      const gp=$('#gPass');const pass=gp?gp.value:'';
       $('#gGo').disabled=true;
-      enterRoom(code).catch(err=>{$('#gGo').disabled=false;er.hidden=false;er.textContent=err.message||'No se pudo entrar a la sala.';showGateAgain()});
+      enterRoom(code,pass,create).catch(err=>{
+        if(err.needPass){showGate('join',code,{pass:true,msg:err.message});return}
+        $('#gGo').disabled=false;er.hidden=false;er.textContent=err.message||'No se pudo entrar a la sala.';showGateAgain()});
       break}
     case 'room':openRoomModal();break;
+    case 'admin-claim':adm.claiming=true;renderAdmin();break;
+    case 'admin-claim-no':adm.claiming=false;renderAdmin();break;
+    case 'admin-claim-go':{const v=pwChoiceValue();if(!v.ok){toast('La contraseña tiene que tener al menos 4 caracteres.');break}
+      adminDo(async()=>{await claimRoom(v.pass);restartRt()},'Listo: ahora administrás la sala.');break}
+    case 'admin-setpass':{const v=($('#apwNew').value||'').trim();if(v.length<4){toast('La contraseña tiene que tener al menos 4 caracteres.');break}
+      adminDo(()=>setRoomPass(v),'Contraseña guardada. La otra persona tendrá que escribirla.');break}
+    case 'admin-rmpass':adminDo(()=>setRoomPass(''),'La sala quedó sin contraseña.');break
+    case 'kick-ask':S.confirmKick=t.dataset.m;renderAdmin();break;
+    case 'kick-no':S.confirmKick=null;renderAdmin();break;
+    case 'kick-yes':{const m=t.dataset.m;S.confirmKick=null;adminDo(()=>rpc('lad_room_kick',{p_room:S.room,p_owner:store.get('lad-own:'+S.room),p_member:m}),'La persona fue quitada de la sala.');break}
+    case 'music':toggleMusic();break;
+    case 'mus-load':musLoad();break;
+    case 'mus-prev':musCmd('prev');break;
+    case 'mus-play':musCmd('toggle');break;
+    case 'mus-next':musCmd('next');break;
+    case 'mus-shuf':musCmd('shuf');break;
+    case 'mus-min':toggleMusic(false);break;
     case 'room-close':$('#roomModal').hidden=true;break;
     case 'room-save':saveRoomModal();break;
     case 'copy-code':copyText(S.code,'Código copiado.');break;
@@ -1062,7 +1229,7 @@ $('#audFile').addEventListener('change',e=>{
 });
 $('#scrub').addEventListener('input',e=>{const c=S.cur;if(c&&c.ready)navigateTo(+e.target.value)});
 document.addEventListener('keydown',e=>{
-  if(e.key==='Enter'&&e.target.id==='gCode'||e.key==='Enter'&&e.target.id==='gName'){const b=$('#gGo');if(b)b.click();return}
+  if(e.key==='Enter'&&(e.target.id==='gCode'||e.target.id==='gName'||e.target.id==='gPass')){const b=$('#gGo');if(b)b.click();return}
   if(e.key==='Escape'){
     if(!$('#cmpModal').hidden)closeComposer();else if(!$('#upModal').hidden){$('#upModal').hidden=true}else if(!$('#roomModal').hidden){$('#roomModal').hidden=true}else hidePop();return}
   const c=S.cur;if(!c||!c.ready||$('#rd').hidden)return;
