@@ -88,6 +88,53 @@ async function sha256hex(t){const d=await crypto.subtle.digest('SHA-256',new Tex
 const hashTok=(code,pass)=>sha256hex('libro-a-duo:pw:v1:'+code+':'+pass);
 const isKick=e=>e&&(e.code==='LAD01'||/expulsado/.test(e.message||''));
 const isPass=e=>e&&(e.code==='LAD02'||/contrasena/.test(e.message||''));
+/* ---- llevar la sesión a otro dispositivo ---- */
+const b64u=u8=>btoa(String.fromCharCode(...u8)).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const unb64u=t=>Uint8Array.from(atob(t.replace(/-/g,'+').replace(/_/g,'/')+'==='.slice((t.length+3)%4)),c=>c.charCodeAt(0));
+async function xferMake(){
+  const own=store.get('lad-own:'+S.room)||'';
+  const payload=JSON.stringify({v:1,code:S.code,member:S.member,name:S.name,color:S.color,tok:S.tok||'',own:own});
+  const key=await crypto.subtle.generateKey({name:'AES-GCM',length:128},true,['encrypt']);
+  const iv=crypto.getRandomValues(new Uint8Array(12));
+  const ct=new Uint8Array(await crypto.subtle.encrypt({name:'AES-GCM',iv},key,new TextEncoder().encode(payload)));
+  const blob=new Uint8Array(12+ct.length);blob.set(iv);blob.set(ct,12);
+  const kraw=new Uint8Array(await crypto.subtle.exportKey('raw',key));
+  const id=b64u(crypto.getRandomValues(new Uint8Array(18)));
+  await rpc('lad_xfer_put',{p_id:id,p_blob:b64u(blob)});
+  return location.origin+location.pathname+'#t='+id+'.'+b64u(kraw);
+}
+async function xferOpen(id,k){
+  const blob=await rpc('lad_xfer_take',{p_id:id});
+  if(!blob)throw new Error('used');
+  const raw=unb64u(blob);
+  const key=await crypto.subtle.importKey('raw',unb64u(k),'AES-GCM',false,['decrypt']);
+  const pt=await crypto.subtle.decrypt({name:'AES-GCM',iv:raw.slice(0,12)},key,raw.slice(12));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+async function xferApply(p){
+  if(!p||p.v!==1||!p.code||!p.member)throw new Error('bad');
+  const room=await hashRoom(p.code);
+  S.member=p.member;store.set('lad-member',p.member);
+  if(p.name){S.name=p.name;store.set('lad-name',p.name)}
+  if(p.color){S.color=p.color;store.set('lad-color',p.color)}
+  if(p.tok)store.set('lad-tok:'+room,p.tok);else store.del('lad-tok:'+room);
+  if(p.own)store.set('lad-own:'+room,p.own);
+  store.set('lad-room',p.code.trim().toLowerCase().replace(/\s+/g,'-'));
+  mkSb();
+}
+let qrP=null;
+function loadQR(){
+  if(window.qrcode)return Promise.resolve();
+  return qrP||(qrP=new Promise((res,rej)=>{const sc=document.createElement('script');sc.src='https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js';sc.onload=res;sc.onerror=()=>{qrP=null;rej(new Error('qr'))};document.head.appendChild(sc)}));
+}
+function renderXfer(link){
+  const b=$('#rmXfer');if(!b)return;
+  let h='<div style="border-top:1px solid var(--line);padding-top:14px;margin:6px 0 16px"><b style="display:block;margin-bottom:6px">Llevar mi sesión a otro dispositivo</b>';
+  if(!link)h+='<p class="hint">Entrás desde otra PC o celular como la misma persona: mismo progreso, mismas notas y, si sos administrador, la administración.</p><button class="btn" data-act="xfer-go">Generar enlace y QR</button>';
+  else h+='<p class="hint">Abrilo en el otro dispositivo (o escaneá el QR). Sirve <b>una sola vez</b> y vence en 10 minutos. Quien lo abra queda como vos: no lo compartas con nadie más.</p><div class="codebox"><span style="word-break:break-all;font-size:12px">'+esc(link)+'</span><button class="btn sm" data-act="xfer-copy" data-l="'+esc(link)+'">Copiar</button></div><div id="xferQr" style="margin-top:10px;text-align:center"></div>';
+  b.innerHTML=h+'</div>';
+  if(link)loadQR().then(()=>{try{const q=qrcode(0,'M');q.addData(link);q.make();$('#xferQr').innerHTML=q.createSvgTag({cellSize:4,margin:2,scalable:true});const sv=$('#xferQr svg');if(sv){sv.style.width='200px';sv.style.height='200px';sv.style.background='#fff'}}catch(e){}}).catch(()=>{});
+}
 async function getCountry(){
   try{const o=JSON.parse(store.get('lad-cc')||'null');if(o&&Date.now()-o.t<3*864e5)return o.v}catch(e){}
   try{const c=new AbortController();const to=setTimeout(()=>c.abort(),4000);
@@ -137,6 +184,15 @@ async function init(){
   if(!window.supabase||!window.supabase.createClient){showGate('nolib');return}
   mkSb();
   if(location.hash==='#admin'){S.adminMode=true;history.replaceState(null,'',location.pathname+location.search)}
+  const tm=location.hash.match(/^#t=([\w-]{22,64})\.([\w-]{20,})$/);
+  if(tm){
+    history.replaceState(null,'',location.pathname+location.search);
+    try{
+      const p=await xferOpen(tm[1],tm[2]);
+      if(S.name&&store.get('lad-room')&&!confirm('Este dispositivo ya tiene una sesión. ¿Reemplazarla por la tuya ('+(p.name||'sin nombre')+')?'))return showGate('join',store.get('lad-room')||'');
+      await xferApply(p);
+    }catch(e){showGate('join','',{msg:'El enlace ya se usó, venció o no es válido. Generá uno nuevo desde el otro dispositivo.'});return}
+  }
   let inviteCode='';
   const m=location.hash.match(/^#s=(.+)$/);
   if(m){try{inviteCode=decodeURIComponent(m[1])}catch(e){}history.replaceState(null,'',location.pathname+location.search)}
@@ -1073,7 +1129,7 @@ function renderPlayerState(){
 function openRoomModal(){
   $('#roomCode').textContent=S.code;$('#rmName').value=S.name;
   $('#rmColors').innerHTML=PALETTE.map(c=>'<label><input type="radio" name="rc" value="'+c+'"'+(c===S.color?' checked':'')+' aria-label="Color"><span style="--c:'+c+'"></span></label>').join('');
-  $('#roomModal').hidden=false;S.confirmKick=null;loadAdmin();
+  $('#roomModal').hidden=false;S.confirmKick=null;loadAdmin();renderXfer();
 }
 function saveRoomModal(){
   const n=$('#rmName').value.trim();if(!n){toast('Escribí un nombre.');return}
@@ -1165,6 +1221,8 @@ document.addEventListener('click',e=>{
     case 'kick-ask':S.confirmKick=t.dataset.m;renderAdmin();break;
     case 'kick-no':S.confirmKick=null;renderAdmin();break;
     case 'kick-yes':{const m=t.dataset.m;S.confirmKick=null;adminDo(()=>rpc('lad_room_kick',{p_room:S.room,p_owner:store.get('lad-own:'+S.room),p_member:m}),'La persona fue quitada de la sala.');break}
+    case 'xfer-go':{t.disabled=true;xferMake().then(l=>renderXfer(l)).catch(()=>{toast('No se pudo generar el enlace. Probá de nuevo.');renderXfer()});break}
+    case 'xfer-copy':navigator.clipboard.writeText(t.dataset.l).then(()=>toast('Enlace copiado.')).catch(()=>{});break;
     case 'music':toggleMusic();break;
     case 'mus-load':musLoad();break;
     case 'mus-prev':musCmd('prev');break;

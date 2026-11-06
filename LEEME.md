@@ -133,3 +133,9 @@ Los libros subidos antes de esta versión muestran el porcentaje aproximado hast
 2. En el SQL Editor de Supabase, pegá y corré, en este orden, los archivos `supabase/migrations/20261105000000_codigo_sala.sql` y `supabase/migrations/20261106000000_pais.sql`.
 3. `git add -A`, `git commit -m "codigo y pais"`, `git push`, y recargá la app dos veces.
 - Desde ahora, cada vez que alguien entra a una sala la app guarda en la base el código de la sala y el país aproximado (solo el código de 2 letras, sin IP), para que el dueño del proyecto los vea en el administrador local. Las salas aparecen con su código cuando alguien entra a ellas con la versión nueva.
+
+## Actualización 6 (llevar mi sesión a otro dispositivo)
+1. Copiá los archivos encima de tu carpeta (no se toca `config.js`).
+2. En el SQL Editor de Supabase corré `supabase/migrations/20261107000000_transferir_sesion.sql`.
+3. `git add -A`, `git commit -m "transferir sesion"`, `git push`, y recargá la app dos veces.
+Uso: en "Tu sala" > "Generar enlace y QR". Abrilo en el otro dispositivo: entra como la misma persona (progreso, notas, administración). Sirve una sola vez y vence a los 10 minutos.
