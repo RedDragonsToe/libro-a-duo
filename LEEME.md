@@ -159,3 +159,9 @@ Uso: en "Tu sala" > "Generar enlace y QR". Abrilo en el otro dispositivo: entra 
   ```
   Se detecta solo. Si no querés usarlo, tildá "Tratarlo como formato genérico".
 - Los libros ya subidos siguen funcionando como adaptables.
+
+### Actualización 7b: cuarta marca de datos
+`{{Autor: Nombre}}`, `{{Título: ...}}`, `{{Año: ...}}`, etc., cada una en su línea al inicio del archivo. No se muestran como texto: se guardan con el libro (campo `meta`) y la pantalla de subida los lista. `Título` propone el título del libro. Sin SQL nuevo.
+
+### Actualización 7c: tamaño de página
+Al subir un libro de páginas fijas se elige el tamaño: **Grande** (por defecto, más texto por página, ideal para PC y tablet; en PC se ven dos páginas) o **Chica** (ideal para celular). Los libros ya subidos conservan su tamaño; para cambiarlo hay que volver a subirlos. Sin SQL nuevo.

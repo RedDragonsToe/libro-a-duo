@@ -508,7 +508,16 @@ function isHeadingText(t){
 }
 /* Formato Libro a Dúo: [Título del capítulo]  [[Subtítulo]]  [[[Texto (párrafos separados por línea en blanco)]]] */
 function hasMarks(t){return /\[\[\[[\s\S]*?\]\]\]/.test(t)&&/(^|\n)\s*\[(?!\[)[^\[\]\n]+\]/.test(t)}
+/* Cuarta marca: {{Clave: valor}} en su propia línea = datos del libro (autor, título, año, idioma…). La app decide qué hacer con ellos. */
+function extractMeta(txt){
+  const meta={};
+  const out=txt.replace(/^[ \t]*\{\{([^:{}\n]{1,40}):([^{}\n]*)\}\}[ \t]*$/gm,(m,k,v)=>{
+    k=k.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');v=v.replace(/\s+/g,' ').trim();
+    if(k&&v)meta[k]=meta[k]?meta[k]+', '+v:v;return ''});
+  return{txt:out,meta};
+}
 function parseMarks(txt){
+  const ex=extractMeta(txt);txt=ex.txt;
   const blocks=[];const clean=x=>x.replace(/\s+/g,' ').trim();
   let i=0;const n=txt.length;
   while(i<n){
@@ -525,7 +534,7 @@ function parseMarks(txt){
       const t=clean(txt.slice(j+1,e));if(t)blocks.push(['c',t]);i=e+1;
     }
   }
-  blocks.marks=true;return blocks;
+  blocks.marks=true;blocks.meta=ex.meta;return blocks;
 }
 function decodeTxt(buf){let txt;try{txt=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch(e){txt=new TextDecoder('windows-1252').decode(buf)}return txt.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n')}
 function parseTxt(buf,generic){
@@ -643,7 +652,8 @@ let upBlocks=null,upName='',upFile=null,upGeneric=false;
 function upSummary(blocks){
   if(!blocks.marks)return 'Formato genérico: '+nf(blocks.length)+' bloques de texto.';
   const c=blocks.filter(b=>b[0]==='c').length,s2=blocks.filter(b=>b[0]==='s').length,p=blocks.filter(b=>b[0]==='p').length;
-  return 'Formato Libro a Dúo detectado: '+nf(c)+' capítulo(s), '+nf(s2)+' subtítulo(s), '+nf(p)+' párrafo(s).'+(blocks.fromPdf?' (Leído desde PDF: revisá que los párrafos salgan bien.)':'');
+  const mk=Object.keys(blocks.meta||{});
+  return (mk.length?'Datos del libro: '+mk.map(k=>k+' = '+blocks.meta[k]).join(' · ')+'. ':'')+'Formato Libro a Dúo detectado: '+nf(c)+' capítulo(s), '+nf(s2)+' subtítulo(s), '+nf(p)+' párrafo(s).'+(blocks.fromPdf?' (Leído desde PDF: revisá que los párrafos salgan bien.)':'');
 }
 function openUpload(file,generic){
   upBlocks=null;upFile=file||null;upGeneric=!!generic;$('#upModal').hidden=false;
@@ -653,7 +663,7 @@ function openUpload(file,generic){
   upName=S.linkWish?((S.wish.find(w=>w.id===S.linkWish)||{}).title||prettyTitle(file.name)):prettyTitle(file.name);
   parseFile(file,f=>{const b=$('#upBar');if(b)b.style.width=Math.round(f*100)+'%'},upGeneric).then(blocks=>{
     if($('#upModal').hidden)return;
-    upBlocks=blocks;
+    upBlocks=blocks;if(!S.linkWish&&blocks.meta&&blocks.meta.titulo)upName=blocks.meta.titulo.slice(0,120);
     const chars=blocks.reduce((a,b)=>a+b[1].length,0),words=blocks.reduce((a,b)=>a+b[1].split(/\s+/).length,0);
     upBlocks.chars=chars;upBlocks.words=words;
     $('#upBody').innerHTML='<label class="fld"><span>Título</span><input id="upTitle" maxlength="120" value="'+esc(upName)+'"></label><p class="hint">'+esc(upSummary(blocks))+' '+nf(words)+' palabras. Lo van a ver las personas que estén en tu sala.</p>'+
@@ -661,6 +671,9 @@ function openUpload(file,generic){
       '<div class="fld"><span>Cómo se arman las páginas <button class="ib" type="button" data-act="help-pages" aria-label="¿Qué significa esto?" title="¿Qué significa esto?" style="width:26px;height:26px;font-size:14px;border:1px solid var(--line);border-radius:50%">?</button></span>'+
       '<label class="chk" style="display:block;margin:6px 0"><input type="radio" name="upMode" value="fixed" checked> <b>Fijas</b>: iguales en todos los dispositivos</label>'+
       '<label class="chk" style="display:block;margin:6px 0"><input type="radio" name="upMode" value="flex"> <b>Adaptables</b>: se acomodan a cada pantalla</label></div>'+
+      '<div class="fld" id="upSizeBox"><span>Tamaño de la página (solo para páginas fijas)</span>'+
+      '<label class="chk" style="display:block;margin:6px 0"><input type="radio" name="upSize" value="big" checked> <b>Grande</b>: más texto por página, ideal para PC y tablet</label>'+
+      '<label class="chk" style="display:block;margin:6px 0"><input type="radio" name="upSize" value="small"> <b>Chica</b>: ideal si leen sobre todo en celular</label></div>'+
       '<div class="err" id="upErr" hidden></div><div class="prog" id="upProg" hidden><i id="upBar2"></i></div><div class="foot"><button class="btn" data-act="up-close">Cancelar</button><button class="btn pri" data-act="up-save" id="upSave">Compartir libro</button></div>';
     $('#upTitle').focus();
   }).catch(e=>{
@@ -674,10 +687,13 @@ async function saveBook(){
   let bookId=null;
   try{
     let payload=upBlocks;
+    const meta=upBlocks.meta&&Object.keys(upBlocks.meta).length?upBlocks.meta:null;
+    if(!fixed&&meta)payload={v:2,blocks:upBlocks,meta:meta};
     if(fixed){
+      useFx(FXP[(document.querySelector('input[name=upSize]:checked')||{}).value]||FXP.big);
       const lab=document.createElement('p');lab.className='hint';lab.id='upCalc';lab.textContent='Calculando las páginas…';$('#upProg').before(lab);
       const starts=await fxStarts(upBlocks,f=>{$('#upBar2').style.width=Math.round(f*100)+'%'});
-      lab.remove();payload={v:2,blocks:upBlocks,fx:{starts:starts,fw:FX.fw,fh:FX.fh,v:1}};
+      lab.remove();payload={v:2,blocks:upBlocks,fx:{starts:starts,fw:FX.fw,fh:FX.fh,px:FX.px,pt:FX.pt,pb:FX.pb,fs:FX.fs,v:1}};if(meta)payload.meta=meta;
     }
     const json=JSON.stringify(payload);
     const g=await gzip(json);
@@ -747,6 +763,8 @@ function buildFlow(blocks,starts){
 }
 /* ---- páginas fijas: tamaño interno único, igual en todos los dispositivos ---- */
 const FX={fw:360,fh:560,px:30,pt:48,pb:46,fs:16};
+const FXP={small:{fw:360,fh:560,px:30,pt:48,pb:46,fs:16},big:{fw:520,fh:700,px:40,pt:52,pb:48,fs:17}};
+function useFx(o){Object.assign(FX,FXP.small);if(o&&o.fw){['fw','fh','px','pt','pb','fs'].forEach(k=>{if(o[k])FX[k]=o[k]})}}
 function fxTest(w,extra){
   const t=document.createElement('div');t.className='flow fx';
   t.style.cssText='position:absolute;visibility:hidden;left:-9999px;top:0;width:'+w+'px;font-size:'+FX.fs+'px;'+(extra||'');
@@ -830,7 +848,7 @@ async function loadBookData(meta){
   }
   const o=JSON.parse(json);
   const blocks=Array.isArray(o)?o:o.blocks,fx=Array.isArray(o)?null:(o.fx||null);
-  const data=buildFlow(blocks,fx&&fx.starts);data.fx=fx;
+  const data=buildFlow(blocks,fx&&fx.starts);data.fx=fx;data.meta=Array.isArray(o)?{}:(o.meta||{});
   bookCache[meta.id]=data;return data;
 }
 function showLoad(html){const l=$('#rdLoad');l.hidden=false;l.innerHTML='<div>'+html+'</div>'}
@@ -886,9 +904,10 @@ function closeBook(keepView){
 function layoutDims(){
   const st=$('#stage');const sw=st.clientWidth,sh=st.clientHeight;
   if(S.cur&&S.cur.data&&S.cur.data.fx){
+    useFx(S.cur.data.fx);
     const pw=FX.fw,ph=FX.fh,avW=sw-24,avH=sh-24;
     const s2=Math.min(avW/(2*pw),avH/ph),s1=Math.min(avW/pw,avH/ph);
-    const N=s2>=1?2:1,fit=Math.min(N===2?s2:s1,2.2),z=clamp(+S.fz||1,1,2);
+    const N=s2>=0.85?2:1,fit=Math.min(N===2?s2:s1,2.2),z=clamp(+S.fz||1,1,2);
     return{N:N,pw:pw,ph:ph,padX:FX.px,padT:FX.pt,padB:FX.pb,W:pw-2*FX.px,H:ph-FX.pt-FX.pb,fixed:true,scale:fit*z,fit:fit};
   }
   const N=sw>=860?2:1;

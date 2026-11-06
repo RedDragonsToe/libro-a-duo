@@ -2,7 +2,7 @@
    - Archivos de la app: red primero (así se actualiza sola), con copia local si no hay internet.
    - Librerías y tipografías de CDN: copia local primero.
    - Todo lo demás (Supabase) pasa directo, sin tocar. */
-const VERSION = 'lad-v7';
+const VERSION = 'lad-v9';
 const SHELL = ['./', 'index.html', 'styles.css', 'app.js', 'config.js', 'manifest.webmanifest',
   'fonts/lad-serif.woff', 'fonts/lad-serif-italic.woff', 'fonts/lad-serif-bold.woff', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-maskable-512.png', 'icons/apple-touch-icon.png', 'icons/favicon-32.png'];
 const LIBS = [
