@@ -262,3 +262,19 @@ section{height:100%}
 #mus.min .mus-v{position:fixed;left:-9999px;top:0}
 #mus.min .mus-h b,#mus.min .mus-i,#mus.min .mus-t,#mus.min #musMsg,#mus.min [data-act=mus-min]{display:none}
 #mus .ib[aria-pressed=true]{color:var(--accent)}
+
+/* formato propio y páginas fijas */
+@font-face{font-family:LadSerif;src:url(fonts/lad-serif.woff) format("woff");font-weight:400;font-style:normal;font-display:block}
+@font-face{font-family:LadSerif;src:url(fonts/lad-serif-italic.woff) format("woff");font-weight:400;font-style:italic;font-display:block}
+@font-face{font-family:LadSerif;src:url(fonts/lad-serif-bold.woff) format("woff");font-weight:700;font-style:normal;font-display:block}
+#stage{display:flex;overflow:auto;place-items:initial}
+#bookWrap{position:relative;margin:auto;flex:none}
+#bookWrap .book{transform-origin:0 0}
+.flow.fx{font-family:LadSerif,"Liberation Serif",Georgia,serif;font-variation-settings:normal;hyphens:none;-webkit-hyphens:none;text-align:justify;font-kerning:normal;-webkit-text-size-adjust:100%;text-size-adjust:100%;font-synthesis:none}
+.flow h1{font-size:1.5em;line-height:1.2;font-weight:700;text-align:center;margin:1.2em 0 .6em;text-indent:0;break-inside:avoid-column;break-after:avoid-column;hyphens:manual}
+.flow h3{font-size:1.1em;line-height:1.3;font-weight:400;font-style:italic;text-align:center;margin:0 0 .9em;text-indent:0;break-after:avoid-column;break-inside:avoid-column}
+.flow h1+p,.flow h3+p,.flow h2+p{text-indent:0}
+.flow .pb{break-before:column}
+.flow.fx .pb,.flow.fx>:first-child{margin-top:0}
+.flow .cont{text-indent:0}
+.helpcol{margin:12px 0}.helpcol video{width:100%;border-radius:10px;border:1px solid var(--line);background:#000;display:block;margin:6px 0}

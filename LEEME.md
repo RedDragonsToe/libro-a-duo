@@ -139,3 +139,23 @@ Los libros subidos antes de esta versión muestran el porcentaje aproximado hast
 2. En el SQL Editor de Supabase corré `supabase/migrations/20261107000000_transferir_sesion.sql`.
 3. `git add -A`, `git commit -m "transferir sesion"`, `git push`, y recargá la app dos veces.
 Uso: en "Tu sala" > "Generar enlace y QR". Abrilo en el otro dispositivo: entra como la misma persona (progreso, notas, administración). Sirve una sola vez y vence a los 10 minutos.
+
+## Actualización 7 (páginas fijas y formato propio)
+1. Copiá los archivos encima de tu carpeta (no se toca `config.js`). No hay SQL nuevo en esta actualización.
+2. `git add -A`, `git commit -m "paginas fijas"`, `git push`, y recargá la app dos veces.
+- Al subir un libro se elige cómo se arman las páginas (el "?" muestra un video de cada opción):
+  - **Fijas**: todos ven exactamente las mismas páginas (misma primera palabra y mismo número de página en cualquier dispositivo). A+ / A− pasan a ser zoom.
+  - **Adaptables**: como antes, el texto se acomoda a cada pantalla.
+- Reglas de corte de las páginas fijas: cada capítulo empieza en página nueva, no se corta a mitad de una oración (salvo oraciones larguísimas), no quedan líneas sueltas ni títulos solos al pie.
+- Formato propio (en `.txt` o en PDF con texto real, no escaneado):
+  ```
+  [Título del capítulo]
+  [[Subtítulo (opcional)]]
+  [[[
+  Texto del capítulo. Cada párrafo se separa del siguiente con una línea en blanco.
+
+  Segundo párrafo.
+  ]]]
+  ```
+  Se detecta solo. Si no querés usarlo, tildá "Tratarlo como formato genérico".
+- Los libros ya subidos siguen funcionando como adaptables.

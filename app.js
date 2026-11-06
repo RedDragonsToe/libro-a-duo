@@ -74,7 +74,7 @@ const S={
   screen:'boot',online:true,books:[],booksLoaded:false,readersAll:[],presence:{},ch:null,chReady:false,
   cur:null,notes:[],notesIds:null,panel:false,panelMode:'page',confirmDel:null,confirmBook:null,sel:null,
   cmp:null,draft:null,rec:null,player:null,blobs:{},followUid:null,tab:'books',wish:[],wishLoaded:false,confirmWish:null,linkWish:null,srch:null,rtTries:0,lastRt:0,
-  fs:+store.get('lad-fs')||(innerWidth<600?16:18),installEvt:null
+  fs:+store.get('lad-fs')||(innerWidth<600?16:18),fz:+store.get('lad-fz')||1,installEvt:null
 };
 if(!S.member){S.member='m'+rnd();store.set('lad-member',S.member)}
 const isConfigured=()=>/^https:\/\/.+/.test(CFG.SUPABASE_URL||'')&&(CFG.SUPABASE_ANON_KEY||'').length>20&&!/PEGAR/.test(CFG.SUPABASE_URL+CFG.SUPABASE_ANON_KEY);
@@ -229,9 +229,13 @@ function pwChoiceHtml(){
   return '<div class="banner" style="margin:0 0 14px"><b style="display:block;margin-bottom:6px">¿Querés ponerle contraseña a la sala?</b><label style="display:block;margin:4px 0"><input type="radio" name="apw" value="no" checked> No, sin contraseña</label><label style="display:block;margin:4px 0"><input type="radio" name="apw" value="yes"> Sí, ponerle contraseña</label><input id="apwIn" type="password" autocomplete="off" placeholder="Contraseña" disabled style="width:100%;margin-top:6px;border:1px solid var(--line);background:var(--paper);color:var(--paper-ink);border-radius:10px;padding:10px 12px;font:inherit;font-size:16px"><span class="hint" style="display:block;margin-top:6px">Se la tenés que pasar a la otra persona junto con el código. Podés cambiarla o quitarla después.</span></div>';
 }
 function pwChoiceValue(){const y=document.querySelector('input[name=apw]:checked');if(!y||y.value!=='yes')return{ok:true,pass:''};const v=($('#apwIn').value||'').trim();return v.length<4?{ok:false}:{ok:true,pass:v}}
-document.addEventListener('change',e=>{if(e.target.name==='apw'){const i=$('#apwIn');if(i){i.disabled=e.target.value!=='yes';if(!i.disabled)i.focus()}}});
+document.addEventListener('change',e=>{if(e.target.id==='upGen'&&upFile){openUpload(upFile,e.target.checked);return}if(e.target.name==='apw'){const i=$('#apwIn');if(i){i.disabled=e.target.value!=='yes';if(!i.disabled)i.focus()}}});
 document.addEventListener('input',e=>{if(e.target.id==='gCode'){const g=$('#gNew');if(g)g.innerHTML=''}});
 
+function helpPages(){
+  const m=$('#helpModal');m.hidden=false;
+  m.querySelectorAll('video').forEach(v=>{try{v.currentTime=0;v.play()}catch(e){}});
+}
 /* ---- administración de la sala ---- */
 function handleKicked(){
   if(!S.room)return;
@@ -502,9 +506,31 @@ function isHeadingText(t){
   if(t.length>70||/[.,;:]$/.test(t))return false;
   return /^(cap[ií]tulo|cap\.|parte|libro|pr[oó]logo|ep[ií]logo|introducci[oó]n|chapter|part|prologue|epilogue)\b/i.test(t)||/^\d{1,3}\.?$/.test(t)||/^[IVXLC]{1,7}\.?$/.test(t)||(t===t.toUpperCase()&&/[A-ZÁÉÍÓÚÑ]/.test(t)&&t.length<=50);
 }
-function parseTxt(buf){
-  let txt;try{txt=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch(e){txt=new TextDecoder('windows-1252').decode(buf)}
-  txt=txt.replace(/^﻿/,'').replace(/\r\n?/g,'\n');
+/* Formato Libro a Dúo: [Título del capítulo]  [[Subtítulo]]  [[[Texto (párrafos separados por línea en blanco)]]] */
+function hasMarks(t){return /\[\[\[[\s\S]*?\]\]\]/.test(t)&&/(^|\n)\s*\[(?!\[)[^\[\]\n]+\]/.test(t)}
+function parseMarks(txt){
+  const blocks=[];const clean=x=>x.replace(/\s+/g,' ').trim();
+  let i=0;const n=txt.length;
+  while(i<n){
+    const j=txt.indexOf('[',i);if(j<0)break;
+    if(txt.startsWith('[[[',j)){
+      let e=txt.indexOf(']]]',j+3);if(e<0)e=n;
+      txt.slice(j+3,e).split(/\n\s*\n/).forEach(p=>{p=clean(p);if(p)blocks.push(['p',p])});
+      i=Math.min(n,e+3);
+    }else if(txt.startsWith('[[',j)){
+      let e=txt.indexOf(']]',j+2);if(e<0)break;
+      const t=clean(txt.slice(j+2,e));if(t)blocks.push(['s',t]);i=e+2;
+    }else{
+      let e=txt.indexOf(']',j+1);if(e<0)break;
+      const t=clean(txt.slice(j+1,e));if(t)blocks.push(['c',t]);i=e+1;
+    }
+  }
+  blocks.marks=true;return blocks;
+}
+function decodeTxt(buf){let txt;try{txt=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch(e){txt=new TextDecoder('windows-1252').decode(buf)}return txt.replace(/^\uFEFF/,'').replace(/\r\n?/g,'\n')}
+function parseTxt(buf,generic){
+  const txt=decodeTxt(buf);
+  if(!generic&&hasMarks(txt))return parseMarks(txt);
   let parts=txt.split(/\n{2,}/);
   if(parts.length<=2&&txt.length>3000)parts=txt.split('\n');
   const blocks=[];
@@ -572,7 +598,7 @@ function pdfLinesToBlocks(lines,numPages){
   flush();
   return blocks;
 }
-async function parsePdf(buf,onProg){
+async function parsePdf(buf,onProg,generic){
   if(!window.pdfjsLib)throw new Error('No se pudo cargar el lector de PDF. Revisá la conexión y probá de nuevo.');
   pdfjsLib.GlobalWorkerOptions.workerSrc='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
   const pdf=await pdfjsLib.getDocument({data:buf}).promise;
@@ -593,16 +619,18 @@ async function parsePdf(buf,onProg){
     lines.push(...pl);
     if(onProg)onProg(p/pdf.numPages);
   }
-  return pdfLinesToBlocks(lines,pdf.numPages);
+  const blocks=pdfLinesToBlocks(lines,pdf.numPages);
+  if(!generic){const t=blocks.map(b=>b[1]).join('\n\n');if(hasMarks(t)){const m=parseMarks(t);m.fromPdf=true;return m}}
+  return blocks;
 }
-async function parseFile(file,onProg){
+async function parseFile(file,onProg,generic){
   const ext=(file.name.split('.').pop()||'').toLowerCase();
   if(ext==='doc')throw new Error('Los archivos .doc antiguos no se pueden leer acá. Abrilo en Word y guardalo como .docx o como texto (.txt).');
   const buf=await file.arrayBuffer();
   let blocks;
-  if(ext==='pdf'||file.type==='application/pdf')blocks=await parsePdf(buf,onProg);
+  if(ext==='pdf'||file.type==='application/pdf')blocks=await parsePdf(buf,onProg,generic);
   else if(ext==='docx')blocks=await parseDocx(buf);
-  else if(['txt','md','markdown',''].includes(ext)||(file.type||'').startsWith('text/'))blocks=parseTxt(buf);
+  else if(['txt','md','markdown',''].includes(ext)||(file.type||'').startsWith('text/'))blocks=parseTxt(buf,generic);
   else throw new Error('Ese formato no está soportado. Usá PDF, .docx, .txt o .md.');
   const chars=blocks.reduce((a,b)=>a+b[1].length,0);
   if(chars<200)throw new Error('Casi no encontré texto en ese archivo. Revisá que no sea un escaneo o un archivo vacío.');
@@ -611,19 +639,29 @@ async function parseFile(file,onProg){
 }
 
 /* ================= subir libro ================= */
-let upBlocks=null,upName='';
-function openUpload(file){
-  upBlocks=null;$('#upModal').hidden=false;
+let upBlocks=null,upName='',upFile=null,upGeneric=false;
+function upSummary(blocks){
+  if(!blocks.marks)return 'Formato genérico: '+nf(blocks.length)+' bloques de texto.';
+  const c=blocks.filter(b=>b[0]==='c').length,s2=blocks.filter(b=>b[0]==='s').length,p=blocks.filter(b=>b[0]==='p').length;
+  return 'Formato Libro a Dúo detectado: '+nf(c)+' capítulo(s), '+nf(s2)+' subtítulo(s), '+nf(p)+' párrafo(s).'+(blocks.fromPdf?' (Leído desde PDF: revisá que los párrafos salgan bien.)':'');
+}
+function openUpload(file,generic){
+  upBlocks=null;upFile=file||null;upGeneric=!!generic;$('#upModal').hidden=false;
   $('#upSub').textContent=file?file.name:'Elegí un archivo PDF, Word (.docx) o de texto.';
   if(!file){$('#upBody').innerHTML='<div class="foot"><button class="btn" data-act="up-close">Cancelar</button><button class="btn pri" data-act="pick-book">'+ico('file')+'Elegir archivo</button></div>';return}
   $('#upBody').innerHTML='<div class="prog"><i id="upBar"></i></div><p class="hint" id="upMsg">Leyendo el archivo…</p><div class="foot"><button class="btn" data-act="up-close">Cancelar</button></div>';
   upName=S.linkWish?((S.wish.find(w=>w.id===S.linkWish)||{}).title||prettyTitle(file.name)):prettyTitle(file.name);
-  parseFile(file,f=>{const b=$('#upBar');if(b)b.style.width=Math.round(f*100)+'%'}).then(blocks=>{
+  parseFile(file,f=>{const b=$('#upBar');if(b)b.style.width=Math.round(f*100)+'%'},upGeneric).then(blocks=>{
     if($('#upModal').hidden)return;
     upBlocks=blocks;
     const chars=blocks.reduce((a,b)=>a+b[1].length,0),words=blocks.reduce((a,b)=>a+b[1].split(/\s+/).length,0);
     upBlocks.chars=chars;upBlocks.words=words;
-    $('#upBody').innerHTML='<label class="fld"><span>Título</span><input id="upTitle" maxlength="120" value="'+esc(upName)+'"></label><p class="hint">'+nf(blocks.length)+' párrafos · '+nf(words)+' palabras · ≈ '+nf(Math.max(1,Math.round(chars/1800)))+' páginas. Lo van a ver las personas que estén en tu sala.</p><div class="err" id="upErr" hidden></div><div class="prog" id="upProg" hidden><i id="upBar2"></i></div><div class="foot"><button class="btn" data-act="up-close">Cancelar</button><button class="btn pri" data-act="up-save" id="upSave">Compartir libro</button></div>';
+    $('#upBody').innerHTML='<label class="fld"><span>Título</span><input id="upTitle" maxlength="120" value="'+esc(upName)+'"></label><p class="hint">'+esc(upSummary(blocks))+' '+nf(words)+' palabras. Lo van a ver las personas que estén en tu sala.</p>'+
+      (blocks.marks||upGeneric?'<label class="chk" style="display:block;margin:6px 0"><input type="checkbox" id="upGen" '+(upGeneric?'checked':'')+'> Tratarlo como formato genérico (ignorar las marcas [ ])</label>':'')+
+      '<div class="fld"><span>Cómo se arman las páginas <button class="ib" type="button" data-act="help-pages" aria-label="¿Qué significa esto?" title="¿Qué significa esto?" style="width:26px;height:26px;font-size:14px;border:1px solid var(--line);border-radius:50%">?</button></span>'+
+      '<label class="chk" style="display:block;margin:6px 0"><input type="radio" name="upMode" value="fixed" checked> <b>Fijas</b>: iguales en todos los dispositivos</label>'+
+      '<label class="chk" style="display:block;margin:6px 0"><input type="radio" name="upMode" value="flex"> <b>Adaptables</b>: se acomodan a cada pantalla</label></div>'+
+      '<div class="err" id="upErr" hidden></div><div class="prog" id="upProg" hidden><i id="upBar2"></i></div><div class="foot"><button class="btn" data-act="up-close">Cancelar</button><button class="btn pri" data-act="up-save" id="upSave">Compartir libro</button></div>';
     $('#upTitle').focus();
   }).catch(e=>{
     $('#upBody').innerHTML='<div class="err">'+esc(e.message||'No se pudo leer el archivo.')+'</div><div class="foot"><button class="btn" data-act="up-close">Cerrar</button><button class="btn pri" data-act="pick-book">Elegir otro</button></div>';
@@ -631,10 +669,17 @@ function openUpload(file){
 }
 async function saveBook(){
   const title=($('#upTitle').value||'').trim()||upName;
+  const fixed=(document.querySelector('input[name=upMode]:checked')||{}).value!=='flex';
   const btn=$('#upSave');btn.disabled=true;$('#upProg').hidden=false;$('#upErr').hidden=true;
   let bookId=null;
   try{
-    const json=JSON.stringify(upBlocks);
+    let payload=upBlocks;
+    if(fixed){
+      const lab=document.createElement('p');lab.className='hint';lab.id='upCalc';lab.textContent='Calculando las páginas…';$('#upProg').before(lab);
+      const starts=await fxStarts(upBlocks,f=>{$('#upBar2').style.width=Math.round(f*100)+'%'});
+      lab.remove();payload={v:2,blocks:upBlocks,fx:{starts:starts,fw:FX.fw,fh:FX.fh,v:1}};
+    }
+    const json=JSON.stringify(payload);
     const g=await gzip(json);
     const b=b64enc(g.u8);const n=Math.ceil(b.length/CH);
     if(n>MAX_PARTS)throw new Error('El libro es demasiado largo para compartirlo. Probá con una parte del libro.');
@@ -651,6 +696,7 @@ async function saveBook(){
     toast('Libro compartido. Ya pueden abrirlo los dos.');
     broadcast('books');await refreshBooks();
   }catch(e){
+    console.error('saveBook',e);
     if(bookId){rpc('lad_delete_book',{p_room:S.room,p_book:bookId}).catch(()=>{})}
     btn.disabled=false;$('#upProg').hidden=true;const er=$('#upErr');er.hidden=false;
     er.textContent=netError(e)?'Se cortó la conexión mientras se subía. Probá de nuevo.':((e&&e.message)||'No se pudo guardar el libro.');
@@ -684,14 +730,92 @@ function splitSentences(t){
   });
   return res;
 }
-function buildFlow(blocks){
-  let g=0;const html=[],offs=[];
+const TAGS={c:'h1',h:'h2',s:'h3',p:'p'};
+function buildFlow(blocks,starts){
+  let g=0;const html=[],offs=[];const st=starts?new Set(starts):null;
   blocks.forEach(b=>{
-    const tag=b[0]==='h'?'h2':'p';let h='<'+tag+'>';
-    splitSentences(b[1]).forEach(s=>{offs.push(g);h+='<span class="s" data-i="'+(offs.length-1)+'">'+esc(s)+'</span>';g+=s.length});
-    html.push(h+'</'+tag+'>');g+=1;
+    const tag=TAGS[b[0]]||'p';let open=false,cont=false,first=true;
+    const op=()=>{const cls=[];if(cont)cls.push('cont');if(st&&st.has(offs.length)&&offs.length>0)cls.push('pb');html.push('<'+tag+(cls.length?' class="'+cls.join(' ')+'"':'')+'>');open=true};
+    splitSentences(b[1]).forEach(s=>{
+      if(st&&st.has(offs.length)&&offs.length>0&&open){html.push('</'+tag+'>');open=false;cont=true}
+      if(!open)op();
+      offs.push(g);html.push('<span class="s" data-i="'+(offs.length-1)+'">'+esc(s)+'</span>');g+=s.length;
+    });
+    if(open)html.push('</'+tag+'>');g+=1;
   });
   return{html:html.join(''),offs:offs,total:g};
+}
+/* ---- páginas fijas: tamaño interno único, igual en todos los dispositivos ---- */
+const FX={fw:360,fh:560,px:30,pt:48,pb:46,fs:16};
+function fxTest(w,extra){
+  const t=document.createElement('div');t.className='flow fx';
+  t.style.cssText='position:absolute;visibility:hidden;left:-9999px;top:0;width:'+w+'px;font-size:'+FX.fs+'px;'+(extra||'');
+  document.body.appendChild(t);return t;
+}
+const yieldUI=()=>new Promise(r=>setTimeout(r,0));
+async function fxStarts(blocks,onProg){
+  if(document.fonts){try{await Promise.all([document.fonts.load('16px LadSerif'),document.fonts.load('bold 16px LadSerif'),document.fonts.load('italic 16px LadSerif')]);await document.fonts.ready}catch(e){}}
+  const W=FX.fw-2*FX.px,H=FX.fh-FX.pt-FX.pb;
+  const S2=blocks.map(b=>splitSentences(b[1]));const base=[];let acc=0;S2.forEach(a=>{base.push(acc);acc+=a.length});
+  const total=acc;
+  for(const cap of [0.95,0.91,0.87,0.82]){
+    const starts=await fxGreedy(blocks,S2,base,total,W,H*cap,onProg);
+    if(fxVerify(blocks,starts,W,H))return starts;
+  }
+  throw new Error('No se pudo calcular las páginas de este libro. Probá con la opción "Adaptables".');
+}
+async function fxGreedy(blocks,S2,base,total,W,Hcap,onProg){
+  const T=fxTest(W);
+  try{
+    const lh=parseFloat(getComputedStyle(T).lineHeight)||FX.fs*1.58;
+    const E=(type,cls,txt)=>{const tag=TAGS[type]||'p';return '<'+tag+(cls?' class="'+cls+'"':'')+'>'+esc(txt)+'</'+tag+'>'};
+    const H=h=>{T.innerHTML=h;return T.offsetHeight};
+    const isHead=t=>t==='c'||t==='h'||t==='s';
+    const starts=[0];let bi=0,si=0,pages=0;
+    while(bi<blocks.length){
+      let html='';const els=[];let has=false;
+      while(bi<blocks.length){
+        const type=blocks[bi][0],rem=S2[bi].slice(si);
+        if(!rem.length){bi++;si=0;continue}
+        const cont=si>0;const cls=(has?'':'pb')+(cont?' cont':'');
+        if(type==='c'&&has)break;
+        const full=E(type,cls,rem.join(''));
+        if(H(html+full)<=Hcap){els.push({type,bi,si,len:full.length});html+=full;has=true;bi++;si=0;continue}
+        if(isHead(type)){
+          if(!has){els.push({type,bi,si});html+=full;has=true;bi++;si=0;continue}
+          break;
+        }
+        // párrafo que no entra: buscar la mayor cantidad de oraciones que entran
+        let lo=0,hi=rem.length-1;
+        while(lo<hi){const m=(lo+hi+1)>>1;if(H(html+E(type,cls,rem.slice(0,m).join('')))<=Hcap)lo=m;else hi=m-1}
+        let k=lo;
+        const lines=(kk)=>Math.round((H(html+E(type,cls,rem.slice(0,kk).join('')))-H(html))/lh);
+        if(k>0&&lines(k)<2)k=0;
+        if(k>1){const restLines=Math.round(H(E(type,'pb cont',rem.slice(k).join('')))/lh);if(restLines<2){k--;if(k>0&&lines(k)<2)k=0}}
+        if(k===0){if(has)break;k=1}
+        const part=E(type,cls,rem.slice(0,k).join(''));
+        els.push({type,bi,si,len:part.length});html+=part;has=true;si+=k;
+        break;
+      }
+      // los títulos no quedan solos al pie de una página
+      while(els.length>1&&isHead(els[els.length-1].type)){const e=els.pop();bi=e.bi;si=e.si}
+      pages++;
+      if(bi<blocks.length)starts.push(base[bi]+si);
+      if(pages%25===0){if(onProg)onProg(Math.min(0.99,(base[Math.min(bi,blocks.length-1)]+si)/Math.max(1,total)));await yieldUI()}
+    }
+    return starts;
+  }finally{T.remove()}
+}
+/* comprueba en una maqueta real de columnas que cada página empieza donde debe */
+function fxVerify(blocks,starts,W,H){
+  const D=FX.fw;const T=fxTest(W,'height:'+H+'px;column-width:'+W+'px;column-gap:'+(2*FX.px)+'px;column-fill:auto;');
+  try{
+    const data=buildFlow(blocks,starts);T.innerHTML=data.html;
+    const spans=T.querySelectorAll('.s');const fr=T.getBoundingClientRect();
+    const pageOf=sp=>Math.floor(((sp.getClientRects()[0]||{left:fr.left}).left-fr.left+1)/D);
+    for(let k=0;k<starts.length;k++){if(pageOf(spans[starts[k]])!==k)return false}
+    return pageOf(spans[spans.length-1])===starts.length-1;
+  }finally{T.remove()}
 }
 const bookCache={};
 async function loadBookData(meta){
@@ -704,7 +828,9 @@ async function loadBookData(meta){
     json=await gunzip(b64dec(b),meta.gz);
     idb.set(meta.id,json);
   }
-  const data=buildFlow(JSON.parse(json));
+  const o=JSON.parse(json);
+  const blocks=Array.isArray(o)?o:o.blocks,fx=Array.isArray(o)?null:(o.fx||null);
+  const data=buildFlow(blocks,fx&&fx.starts);data.fx=fx;
   bookCache[meta.id]=data;return data;
 }
 function showLoad(html){const l=$('#rdLoad');l.hidden=false;l.innerHTML='<div>'+html+'</div>'}
@@ -759,6 +885,12 @@ function closeBook(keepView){
 /* ================= paginación ================= */
 function layoutDims(){
   const st=$('#stage');const sw=st.clientWidth,sh=st.clientHeight;
+  if(S.cur&&S.cur.data&&S.cur.data.fx){
+    const pw=FX.fw,ph=FX.fh,avW=sw-24,avH=sh-24;
+    const s2=Math.min(avW/(2*pw),avH/ph),s1=Math.min(avW/pw,avH/ph);
+    const N=s2>=1?2:1,fit=Math.min(N===2?s2:s1,2.2),z=clamp(+S.fz||1,1,2);
+    return{N:N,pw:pw,ph:ph,padX:FX.px,padT:FX.pt,padB:FX.pb,W:pw-2*FX.px,H:ph-FX.pt-FX.pb,fixed:true,scale:fit*z,fit:fit};
+  }
   const N=sw>=860?2:1;
   const availW=sw-(N===2?64:48),availH=sh-34;
   let pw=Math.floor(Math.min(availW/N,availH*0.74,560));pw=Math.max(pw,230);
@@ -772,17 +904,23 @@ function paginate(){
   const st=$('#stage');if(st.clientWidth<60||st.clientHeight<60)return;
   const D=layoutDims();c.D=D;c.N=D.N;
   const book=$('#book'),flow=$('#flow'),slider=$('#slider');
+  const sc=c.scale=D.fixed?D.scale:1;
+  const wrap=$('#bookWrap');wrap.style.width=Math.round(D.N*D.pw*sc)+'px';wrap.style.height=Math.round(D.ph*sc)+'px';
+  book.style.transform=sc===1?'none':'scale('+sc+')';
   book.style.width=(D.N*D.pw)+'px';book.style.height=D.ph+'px';book.classList.toggle('two',D.N===2);
-  flow.style.cssText='left:'+D.padX+'px;top:'+D.padT+'px;width:'+D.W+'px;height:'+D.H+'px;column-width:'+D.W+'px;column-gap:'+(2*D.padX)+'px;font-size:'+S.fs+'px;';
+  flow.classList.toggle('fx',!!D.fixed);
+  flow.style.cssText='left:'+D.padX+'px;top:'+D.padT+'px;width:'+D.W+'px;height:'+D.H+'px;column-width:'+D.W+'px;column-gap:'+(2*D.padX)+'px;font-size:'+(D.fixed?FX.fs:S.fs)+'px;';
   slider.style.transition='none';slider.style.transform='none';
   const fr=flow.getBoundingClientRect();
   const n=c.spans.length;const pages=new Int32Array(n);let max=0,last=0;
   for(let i=0;i<n;i++){
     const r=c.spans[i].getClientRects()[0];
-    let p=last;if(r)p=Math.max(0,Math.floor((r.left-fr.left+1)/D.pw));
+    let p=last;if(r)p=Math.max(0,Math.floor(((r.left-fr.left)/sc+1)/D.pw));
     if(p<last)p=last;pages[i]=p;last=p;if(p>max)max=p;
   }
   c.pages=pages;c.P=max+1;c.nSp=Math.ceil(c.P/D.N);
+  if(D.fixed)$('#rdSub').textContent=c.P+' páginas · iguales para todos';
+  if(D.fixed&&c.data.fx&&c.P!==c.data.fx.starts.length&&!c.warnedFx){c.warnedFx=true;toast('En este dispositivo las páginas no coinciden del todo con las del libro. Probá actualizar la app.',6000)}
   $('#scrub').max=Math.max(0,c.nSp-1);
   void slider.offsetWidth;
   showSpread(Math.floor(pageOfOff(c.myOff)/D.N),false);
@@ -827,12 +965,12 @@ function paintDeco(){
     const pg=pageOfOff(o.off);if(pg<sp.a||pg>sp.b)return;
     h+='<div class="rib" title="'+esc(o.name||'Otra persona')+' está acá" style="left:'+((pg-sp.a)*D.pw+D.pw*0.74+idx*20)+'px;--c:'+esc(o.color||'#0e8a8f')+'"></div>';
   });
-  const br=$('#book').getBoundingClientRect();const lastY={};
+  const br=$('#book').getBoundingClientRect();const lastY={};const sc=c.scale||1;
   S.notes.forEach(n=>{
     const i=spanIdx(n.pos);if(!c.spans[i])return;const pg=c.pages[i];if(pg<sp.a||pg>sp.b)return;
     const r=c.spans[i].getClientRects()[0];if(!r)return;
     const side=D.N===2&&(pg-sp.a)===0?'l':'r';
-    let y=clamp(Math.round(r.top-br.top-2),10,D.ph-34);
+    let y=clamp(Math.round((r.top-br.top)/sc-2),10,D.ph-34);
     while(lastY[side]&&Math.abs(lastY[side]-y)<24&&y<D.ph-34)y+=24;lastY[side]=y;
     h+='<button class="tab '+side+'" data-act="tab" data-id="'+n.id+'" aria-label="Nota de '+esc(n.name||'otra persona')+'" style="top:'+y+'px;--pnc:'+(NOTE_COLORS[n.color]||NOTE_COLORS.yellow)+';--ac:'+esc(n.mcolor||'#0e8a8f')+'"><i></i></button>';
   });
@@ -978,8 +1116,9 @@ function selectSpan(i){
   const br=$('#book').getBoundingClientRect(),r=c.spans[i].getClientRects()[0];if(!r)return;
   const pop=document.createElement('div');pop.className='pop';
   pop.innerHTML='<button class="btn" data-act="pop-note">'+ico('note')+'Nota</button><button class="btn" data-act="pop-voice">'+ico('mic')+'Voz</button>';
-  const left=clamp(r.left-br.left,6,br.width-176);let top=r.bottom-br.top+6;
-  if(top>br.height-60)top=r.top-br.top-50;
+  const sc=c.scale||1,bw=br.width/sc,bh=br.height/sc;
+  const left=clamp((r.left-br.left)/sc,6,bw-176);let top=(r.bottom-br.top)/sc+6;
+  if(top>bh-60)top=(r.top-br.top)/sc-50;
   pop.style.left=left+'px';pop.style.top=top+'px';$('#deco').appendChild(pop);
 }
 function openComposer(voice){
@@ -1223,6 +1362,8 @@ document.addEventListener('click',e=>{
     case 'kick-yes':{const m=t.dataset.m;S.confirmKick=null;adminDo(()=>rpc('lad_room_kick',{p_room:S.room,p_owner:store.get('lad-own:'+S.room),p_member:m}),'La persona fue quitada de la sala.');break}
     case 'xfer-go':{t.disabled=true;xferMake().then(l=>renderXfer(l)).catch(()=>{toast('No se pudo generar el enlace. Probá de nuevo.');renderXfer()});break}
     case 'xfer-copy':navigator.clipboard.writeText(t.dataset.l).then(()=>toast('Enlace copiado.')).catch(()=>{});break;
+    case 'help-pages':helpPages();break;
+    case 'help-close':$('#helpModal').hidden=true;document.querySelectorAll('#helpModal video').forEach(v=>v.pause());break;
     case 'music':toggleMusic();break;
     case 'mus-load':musLoad();break;
     case 'mus-prev':musCmd('prev');break;
@@ -1256,7 +1397,10 @@ document.addEventListener('click',e=>{
     case 'book-del-yes':deleteBook(t.dataset.id);break;
     case 'prev':navigateTo(S.cur.spread-1);break;
     case 'next':navigateTo(S.cur.spread+1);break;
-    case 'fs+':case 'fs-':S.fs=clamp(S.fs+(a==='fs+'?1:-1),13,28);store.set('lad-fs',S.fs);paginate();break;
+    case 'fs+':case 'fs-':{
+      const c=S.cur;
+      if(c&&c.data&&c.data.fx){const z=clamp(Math.round(((+S.fz||1)+(a==='fs+'?0.2:-0.2))*10)/10,1,2);if(z===(+S.fz||1)){toast(a==='fs-'?'Ya se ve la página entera.':'Este es el zoom máximo.')}S.fz=z;store.set('lad-fz',z);paginate();break}
+      S.fs=clamp(S.fs+(a==='fs+'?1:-1),13,28);store.set('lad-fs',S.fs);paginate();break}
     case 'notes':togglePanel();break;
     case 'nmode':S.panelMode=t.dataset.m;document.querySelectorAll('#side .seg button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.m===S.panelMode));renderNotes();break;
     case 'goto-uid':{const o=getOthers().find(x=>x.uid===t.dataset.uid);if(o)goToOff(o.off);break}
@@ -1319,7 +1463,7 @@ clip.addEventListener('pointerup',e=>{
 });
 clip.addEventListener('click',e=>{
   const c=S.cur;if(!c||!c.ready||swiped)return;
-  const br=$('#book').getBoundingClientRect(),x=e.clientX-br.left,D=c.D,edge=D.pw*0.15;
+  const br=$('#book').getBoundingClientRect(),x=(e.clientX-br.left)/(c.scale||1),D=c.D,edge=D.pw*0.15;
   if(x<edge)return navigateTo(c.spread-1);
   if(x>D.pw*D.N-edge)return navigateTo(c.spread+1);
   const sp=e.target.closest('.s');
@@ -1338,6 +1482,6 @@ document.addEventListener('drop',e=>{
 });
 
 // para pruebas
-window.__lad={pdfLinesToBlocks:pdfLinesToBlocks,parseTxt:parseTxt,splitSentences:splitSentences,S:S};
+window.__lad={fxStarts:fxStarts,parseMarks:parseMarks,buildFlow:buildFlow,FX:FX,pdfLinesToBlocks:pdfLinesToBlocks,parseTxt:parseTxt,splitSentences:splitSentences,S:S};
 init();
 })();

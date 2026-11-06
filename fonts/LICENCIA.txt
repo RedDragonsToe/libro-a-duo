@@ -1,0 +1,1 @@
+Liberation Serif (c) Red Hat / Google. SIL Open Font License 1.1. Subconjunto latino incluido para que el texto mida igual en todos los dispositivos.

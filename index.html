@@ -53,10 +53,10 @@
     <div class="mid">
       <div id="srch" hidden><input id="srchIn" type="search" placeholder="Buscar en el libro" autocomplete="off" aria-label="Buscar en el libro"><span id="srchCnt" aria-live="polite"></span><button class="ib" data-act="s-prev" aria-label="Anterior">↑</button><button class="ib" data-act="s-next" aria-label="Siguiente">↓</button><button class="ib" data-act="s-close" aria-label="Cerrar búsqueda">✕</button></div>
       <div id="stage">
-        <div class="book" id="book">
+        <div id="bookWrap"><div class="book" id="book">
           <div class="clip" id="clip"><div class="slider" id="slider"><div class="flow" id="flow" lang="es"></div></div></div>
           <div class="deco" id="deco"></div>
-        </div>
+        </div></div>
         <div class="loading" id="rdLoad"><div><div class="spin"></div><b>Abriendo el libro</b><span>Un momento…</span></div></div>
       </div>
       <aside id="side" hidden aria-label="Notas">
@@ -105,6 +105,14 @@
   </div>
 </div>
 
+<div class="modal" id="helpModal" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="helpH" style="max-width:560px">
+    <h3 id="helpH">¿Fijas o adaptables?</h3>
+    <div class="helpcol"><b>Fijas</b><video muted loop playsinline preload="metadata"><source src="media/paginas-fijas.mp4" type="video/mp4"><source src="media/paginas-fijas.webm" type="video/webm"></video><p class="hint">Todos ven las mismas páginas: la primera palabra de cada página y el número de página son iguales en el celular y en la PC. El tamaño de letra se cambia con zoom.</p></div>
+    <div class="helpcol"><b>Adaptables</b><video muted loop playsinline preload="metadata"><source src="media/paginas-adaptables.mp4" type="video/mp4"><source src="media/paginas-adaptables.webm" type="video/webm"></video><p class="hint">El texto se acomoda a cada pantalla y al tamaño de letra de cada uno. Se lee más cómodo, pero las páginas cortan en lugares distintos y los números de página no coinciden.</p></div>
+    <div class="foot"><button class="btn pri" data-act="help-close">Entendido</button></div>
+  </div>
+</div>
 <div class="modal" id="cmpModal" hidden>
   <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="cmpH">
     <h3 id="cmpH">Nueva nota</h3>
