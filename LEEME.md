@@ -165,3 +165,6 @@ Uso: en "Tu sala" > "Generar enlace y QR". Abrilo en el otro dispositivo: entra 
 
 ### Actualización 7c: tamaño de página
 Al subir un libro de páginas fijas se elige el tamaño: **Grande** (por defecto, más texto por página, ideal para PC y tablet; en PC se ven dos páginas) o **Chica** (ideal para celular). Los libros ya subidos conservan su tamaño; para cambiarlo hay que volver a subirlos. Sin SQL nuevo.
+
+### Actualización 7d: "Prepararlo con una IA"
+En la pantalla de subir libros hay un botón que copia un pedido con todas las reglas del formato y abre ChatGPT o Claude con el pedido escrito. La persona adjunta su libro en ese chat, guarda el resultado como .txt y lo sube. No se puede adjuntar el libro automáticamente. Sin SQL nuevo.

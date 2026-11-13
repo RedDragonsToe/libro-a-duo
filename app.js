@@ -436,7 +436,7 @@ function renderLib(){
   let h='<div class="banner warn" id="netBanner" '+(S.online?'hidden':'')+'>Sin conexión con el servidor. Los libros que ya abriste se pueden leer; las notas y la página del otro se actualizan cuando vuelva internet.</div>';
   h+='<div class="seg" style="margin-bottom:18px"><button data-act="tab-lib" data-t="books" aria-pressed="'+(S.tab==='books')+'">Biblioteca</button><button data-act="tab-lib" data-t="list" aria-pressed="'+(S.tab==='list')+'">Lista de lectura'+(S.wish.filter(w=>w.status!=='done').length?' ('+S.wish.filter(w=>w.status!=='done').length+')':'')+'</button></div>';
   if(S.tab==='list'){h+=wishHtml();el.innerHTML=h;return}
-  h+='<div class="drop" id="drop"><div><h2>Sumá un libro</h2><p>PDF, Word (.docx), TXT o Markdown. El texto se arma como un libro de páginas.</p></div><button class="btn pri" data-act="pick-book">'+ico('up')+'Elegir archivo</button></div>';
+  h+='<div class="drop" id="drop"><div><h2>Sumá un libro</h2><p>PDF, Word (.docx), TXT o Markdown. El texto se arma como un libro de páginas.</p></div><button class="btn pri" data-act="pick-book">'+ico('up')+'Elegir archivo</button><button class="btn" data-act="ai-prep" title="Dejá listo un pedido para que una IA convierta tu libro a nuestro formato">Prepararlo con una IA</button></div>';
   if(!S.books.length){
     h+=S.booksLoaded?'<div class="empty"><h3>Todavía no hay libros</h3>Subí el primero y los dos lo leen desde acá, cada uno en su pantalla.</div>':'<div class="empty"><div class="spin"></div>Cargando la biblioteca…</div>';
   }else{
@@ -655,10 +655,26 @@ function upSummary(blocks){
   const mk=Object.keys(blocks.meta||{});
   return (mk.length?'Datos del libro: '+mk.map(k=>k+' = '+blocks.meta[k]).join(' · ')+'. ':'')+'Formato Libro a Dúo detectado: '+nf(c)+' capítulo(s), '+nf(s2)+' subtítulo(s), '+nf(p)+' párrafo(s).'+(blocks.fromPdf?' (Leído desde PDF: revisá que los párrafos salgan bien.)':'');
 }
+const AI_PROMPT='Voy a adjuntar un libro (PDF, Word o texto). Reformatealo al "Formato Libro a Dúo" siguiendo estas reglas al pie de la letra.\n\nSALIDA: devolvé SOLO el libro ya formateado, dentro de un único bloque de código de texto plano, sin comentarios ni explicaciones. No resumas ni reescribas: no cambies ni omitas ninguna palabra del texto original, salvo lo que se pide quitar. Si el libro es largo, entregalo por partes y al final de cada parte (fuera del bloque) escribí "CONTINÚA" o "FIN".\n\nDATOS DEL LIBRO: al inicio, una línea por dato con la forma {{Clave: valor}}. Claves: Título, Autor, Año, Idioma, Editorial, Género. Buscalos primero en el libro (portada, página legal); si faltan, buscalos en internet y confirmalos en una fuente confiable. Si no podés confirmar un dato, no lo inventes: omití la línea y avisame fuera del bloque. No copies ISBN ni copyright.\n\nCAPÍTULOS (repetir para cada capítulo):\n[Título del capítulo]\n[[Subtítulo del capítulo]]\n[[[\nTexto del capítulo. Cada párrafo se separa del siguiente con UNA línea en blanco.\n\nSegundo párrafo.\n]]]\n- [Título] va en una sola línea y sin corchetes dentro. Es obligatorio.\n- [[Subtítulo]] es opcional: omití la línea si el capítulo no tiene.\n- Todo el texto del capítulo va en UN solo bloque [[[ ... ]]]. El texto nunca debe contener ]]].\n- Un salto de línea simple dentro de un párrafo NO crea un párrafo nuevo. Cada intervención de un diálogo necesita su propia línea en blanco antes y después.\n- Prólogo, dedicatoria, epígrafe y agradecimientos se conservan, cada uno como un capítulo con su [Título] y su [[[Texto]]].\n- Nada de texto fuera de las marcas (se ignora). No uses otros marcadores (#, **, HTML) ni numeres los párrafos.\n\nLIMPIEZA: eliminá el índice original, los números de página, y los encabezados o pies repetidos. Unite las palabras cortadas con guion al final de línea y los párrafos partidos entre líneas o entre páginas. Notas al pie: ponelas al final del capítulo como un párrafo más. Eliminá TODA referencia a páginas web y publicidad, visible u oculta: direcciones web, dominios, correos, enlaces (conservá solo el texto visible), marcas de agua, créditos de digitalización o traducción, invitaciones a redes sociales, QR y anuncios. Mantené ortografía, tildes, puntuación y comillas del original.\n\nAntes de entregar, verificá: cada [[[ tiene su ]]], no quedan webs ni anuncios, y no omitiste contenido.';
+function aiPrep(){
+  $('#upModal').hidden=false;
+  $('#upSub').textContent='Preparar tu libro con una IA';
+  $('#upBody').innerHTML='<p class="hint">Esto te deja un pedido listo para que una IA (ChatGPT, Claude u otra) convierta tu libro a nuestro formato. Después lo subís acá como archivo de texto.</p>'+
+    '<ol style="padding-left:20px;margin:8px 0;font-size:14px;line-height:1.5"><li>Tocá el botón de la IA que uses. Se copia el pedido y se abre su chat.</li><li>Si no aparece escrito, pegalo (Ctrl+V).</li><li><b>Adjuntá tu libro</b> en ese chat y enviá.</li><li>Copiá lo que te devuelva a un archivo .txt (UTF-8) y subilo acá.</li></ol>'+
+    '<p class="hint">Si el libro es largo, la IA lo entrega por partes: juntalas en un solo .txt, en orden. Revisá el resultado antes de subirlo.</p>'+
+    '<div class="foot" style="flex-wrap:wrap"><button class="btn" data-act="up-close">Cancelar</button><button class="btn" data-act="ai-copy">Solo copiar</button><button class="btn" data-act="ai-open" data-ai="claude">Abrir Claude</button><button class="btn pri" data-act="ai-open" data-ai="chatgpt">Abrir ChatGPT</button></div>';
+}
+async function aiOpen(which){
+  try{await navigator.clipboard.writeText(AI_PROMPT)}catch(e){}
+  const q=encodeURIComponent(AI_PROMPT);
+  const url=which==='claude'?'https://claude.ai/new?q='+q:'https://chatgpt.com/?q='+q;
+  window.open(url,'_blank','noopener');
+  toast('Pedido copiado. Adjuntá tu libro en el chat y enviá.',6000);
+}
 function openUpload(file,generic){
   upBlocks=null;upFile=file||null;upGeneric=!!generic;$('#upModal').hidden=false;
   $('#upSub').textContent=file?file.name:'Elegí un archivo PDF, Word (.docx) o de texto.';
-  if(!file){$('#upBody').innerHTML='<div class="foot"><button class="btn" data-act="up-close">Cancelar</button><button class="btn pri" data-act="pick-book">'+ico('file')+'Elegir archivo</button></div>';return}
+  if(!file){$('#upBody').innerHTML='<div class="foot"><button class="btn" data-act="up-close">Cancelar</button><button class="btn pri" data-act="pick-book">'+ico('file')+'Elegir archivo</button></div><p class="hint" style="margin-top:10px">¿Tu libro no está en nuestro formato? <button class="btn sm" type="button" data-act="ai-prep">Prepararlo con una IA</button></p>';return}
   $('#upBody').innerHTML='<div class="prog"><i id="upBar"></i></div><p class="hint" id="upMsg">Leyendo el archivo…</p><div class="foot"><button class="btn" data-act="up-close">Cancelar</button></div>';
   upName=S.linkWish?((S.wish.find(w=>w.id===S.linkWish)||{}).title||prettyTitle(file.name)):prettyTitle(file.name);
   parseFile(file,f=>{const b=$('#upBar');if(b)b.style.width=Math.round(f*100)+'%'},upGeneric).then(blocks=>{
@@ -1382,6 +1398,9 @@ document.addEventListener('click',e=>{
     case 'xfer-go':{t.disabled=true;xferMake().then(l=>renderXfer(l)).catch(()=>{toast('No se pudo generar el enlace. Probá de nuevo.');renderXfer()});break}
     case 'xfer-copy':navigator.clipboard.writeText(t.dataset.l).then(()=>toast('Enlace copiado.')).catch(()=>{});break;
     case 'help-pages':helpPages();break;
+    case 'ai-prep':aiPrep();break;
+    case 'ai-open':aiOpen(t.dataset.ai);break;
+    case 'ai-copy':copyText(AI_PROMPT,'Pedido copiado. Pegalo en tu IA y adjuntá el libro.');break;
     case 'help-close':$('#helpModal').hidden=true;document.querySelectorAll('#helpModal video').forEach(v=>v.pause());break;
     case 'music':toggleMusic();break;
     case 'mus-load':musLoad();break;
